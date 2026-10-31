@@ -1,0 +1,135 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #1c1c1e;
+  --card: #f5f5f7;
+  --card-foreground: #1c1c1e;
+  --popover: #ffffff;
+  --popover-foreground: #1c1c1e;
+  --primary: #0047ab;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f7;
+  --secondary-foreground: #1c1c1e;
+  --muted: #f5f5f7;
+  --muted-foreground: #6e6e73;
+  --accent: #e8e8ec;
+  --accent-foreground: #1c1c1e;
+  --destructive: #e71111;
+  --border: #e8e8ec;
+  --input: #d1d1d6;
+  --ring: #0047ab;
+  --radius: 8pt;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0047ab;
+  --sidebar-primary: #0047ab;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eaf2ff;
+  --sidebar-accent-foreground: #0047ab;
+  --sidebar-border: #e8e8ec;
+  --sidebar-ring: #0047ab;
+}
+@media (min-width: 576pt) {
+  :root {
+    --sidebar: #0047ab;
+    --sidebar-foreground: #ffffff;
+    --sidebar-primary: #ffffff;
+    --sidebar-primary-foreground: #0047ab;
+    --sidebar-accent: #ffffff26;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: #ffffff26;
+    --sidebar-ring: #c5d9ff;
+  }
+}
+
+@theme {
+  --spacing: 3pt;
+  --spacing-inset: 12pt;
+  --radius-card: 16pt;
+
+  --breakpoint-sm: 480pt;
+  --breakpoint-md: 576pt;
+  --breakpoint-lg: 768pt;
+  --breakpoint-xl: 960pt;
+  --breakpoint-2xl: 1152pt;
+
+  --container-3xs: 192pt;
+  --container-2xs: 216pt;
+  --container-xs: 240pt;
+  --container-sm: 288pt;
+  --container-md: 336pt;
+  --container-lg: 384pt;
+  --container-xl: 432pt;
+  --container-2xl: 504pt;
+  --container-3xl: 576pt;
+  --container-4xl: 672pt;
+  --container-5xl: 768pt;
+  --container-6xl: 864pt;
+  --container-7xl: 960pt;
+
+  --text-xs: 9pt;
+  --text-sm: 10.5pt;
+  --text-base: 12pt;
+  --text-lg: 13.5pt;
+  --text-xl: 15pt;
+  --text-2xl: 18pt;
+  --text-3xl: 22.5pt;
+  --text-4xl: 27pt;
+  --text-5xl: 36pt;
+
+  --radius-xs: 1.5pt;
+  --radius-full: 9999pt;
+
+  --blur-xs: 3pt;
+  --blur-sm: 6pt;
+  --blur-md: 9pt;
+  --blur-lg: 12pt;
+  --blur-xl: 18pt;
+  --blur-2xl: 30pt;
+  --blur-3xl: 48pt;
+
+  --shadow-2xs: 0 0.75pt rgb(0 0 0 / 0.05);
+  --shadow-xs: 0 0.75pt 1.5pt 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 0.75pt 2.25pt 0 rgb(0 0 0 / 0.1), 0 0.75pt 1.5pt -0.75pt rgb(0 0 0 / 0.1);
+  --shadow-md: 0 3pt 4.5pt -0.75pt rgb(0 0 0 / 0.1), 0 1.5pt 3pt -1.5pt rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 7.5pt 11.25pt -2.25pt rgb(0 0 0 / 0.1), 0 3pt 4.5pt -3pt rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 15pt 18.75pt -3.75pt rgb(0 0 0 / 0.1), 0 6pt 7.5pt -4.5pt rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 18.75pt 37.5pt -9pt rgb(0 0 0 / 0.25);
+}
+@theme inline {
+  --font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+}
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }

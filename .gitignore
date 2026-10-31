@@ -1,0 +1,12 @@
+pos-data.json
+password.hash
+credentials.json
+promptpay-id.txt
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+node_modules/
+dist/
+.vercel
+.env*
+.DS_Store

@@ -1,0 +1,35 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { tableState, tableMutation, tableForSale, releaseTable, productInOpenOrder } = require('../tables');
+
+test('tables protect occupied visits, saved orders, and concurrent edits', () => {
+  const data = { products: [{ id: 1, active: true, addons: [{ name: 'Cheese', price: 500 }] }] };
+  assert.deepEqual(tableState(data), { restaurantEnabled: false, tables: [] });
+  assert.equal(tableMutation(data, 'tables', 'POST', { name: '1', seats: 4 }).status, 409);
+  assert.equal(tableMutation(data, 'restaurant', 'PUT', { enabled: true }).status, 200);
+  assert.equal(tableMutation(data, 'tables', 'POST', { name: '1', seats: 0 }).status, 400);
+  const table = tableMutation(data, 'tables', 'POST', { name: '1', seats: 4 }).value;
+  assert.equal(tableMutation(data, 'tables', 'POST', { name: '1', seats: 4 }).status, 409);
+  const patch = input => tableMutation(data, 'tables/1', 'PATCH', { version: table.version, ...input });
+  assert.equal(patch({ action: 'open', guests: 5 }).status, 400);
+  assert.equal(patch({ action: 'open', guests: 2 }).status, 200);
+  assert.equal(tableMutation(data, 'restaurant', 'PUT', { enabled: false }).status, 409);
+  assert.equal(tableMutation(data, 'tables/1', 'DELETE', {}).status, 409);
+  assert.equal(patch({ action: 'details', name: '1', seats: 1 }).status, 409);
+  assert.equal(patch({ action: 'order', items: [{ id: 1, quantity: 1, addons: [9] }] }).status, 409);
+  const items = [{ id: 1, addons: [0], quantity: 2 }];
+  assert.equal(patch({ action: 'order', items }).status, 200);
+  assert.equal(productInOpenOrder(data, 1), true);
+  assert.equal(patch({ action: 'close' }).status, 409);
+  assert.equal(patch({ action: 'order', version: 1, items: [] }).status, 409);
+  assert.equal(tableForSale(data, { tableId: 1, tableVersion: 1, items }).status, 409);
+  assert.equal(tableForSale(data, { tableId: 1, tableVersion: table.version, items: [] }).status, 409);
+  assert.equal(tableForSale(data, { tableId: 1, tableVersion: table.version, items }).table, table);
+  releaseTable(table);
+  assert.equal(table.openedAt, null);
+  assert.deepEqual(table.order, []);
+  assert.equal(productInOpenOrder(data, 1), false);
+  assert.equal(tableMutation(data, 'tables/1', 'DELETE', {}).status, 200);
+  assert.equal(tableState(data).tables.length, 0);
+  assert.equal(tableMutation(data, 'restaurant', 'PUT', { enabled: false }).status, 200);
+});
