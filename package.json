@@ -1,5 +1,5 @@
 {
-  "name": "pos",
+  "name": "opos",
   "private": true,
   "scripts": {
     "build": "vite build",

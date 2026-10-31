@@ -256,5 +256,5 @@ async function handler(req, res) {
 }
 // shortcut: one Mac server owns the data file; use a database if multiple server processes are needed.
 const server = http.createServer((req, res) => handler(req, res).catch(error => send(res, error instanceof SyntaxError ? 400 : 500, { error: error instanceof SyntaxError ? 'Invalid JSON' : 'Server error' })));
-if (require.main === module) server.listen(Number(process.env.PORT || 3000), process.env.POS_HOST || '127.0.0.1', () => console.log(`POS running on port ${process.env.PORT || 3000}`));
+if (require.main === module) server.listen(Number(process.env.PORT || 3000), process.env.POS_HOST || '127.0.0.1', () => console.log(`OPOS running on port ${process.env.PORT || 3000}`));
 module.exports = server;

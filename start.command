@@ -2,7 +2,7 @@
 cd "${0:A:h}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [[ ! -f credentials.json && ! -f password.hash ]]; then
-  read -s '?Create POS password (12+ characters): ' pos_password
+  read -s '?Create OPOS password (12+ characters): ' pos_password
   echo
   print -rn -- "$pos_password" | node server.js --set-password || exit 1
   unset pos_password
