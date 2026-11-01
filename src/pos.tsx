@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { CircleCheck, CircleAlert, ArrowUp, ArrowDown, ArrowUpDown, Delete, Armchair, Utensils, CalendarDays, ChartNoAxesColumn, ChevronDown, ChevronLeft, ChevronRight, ConciergeBell, Download, Eye, EyeOff, LayoutDashboard, LogOut, Package, Plus, Settings, ShoppingCart, SquarePen, Trash2, Minus, X } from 'lucide-react'
+import { CircleCheck, CircleAlert, ArrowUp, ArrowDown, ArrowUpDown, Delete, Utensils, CalendarDays, ChartNoAxesColumn, ChevronDown, ChevronLeft, ChevronRight, ConciergeBell, Download, Eye, EyeOff, TicketPercent, LogOut, Package, Plus, Settings, ShoppingCart, SquarePen, Trash2, Minus, X } from 'lucide-react'
 import { DropdownMenu, Popover } from 'radix-ui'
 import cocoaImg from '@/assets/cocoa.png'
 import thaiTeaImg from '@/assets/thai-tea.png'
@@ -9,6 +9,7 @@ const productImages: Record<string, string> = { 'thai tea': thaiTeaImg, cocoa: c
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { AnimatedSize } from '@/components/ui/animated-size'
+import { DiningTableIcon } from '@/table-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -572,7 +573,7 @@ export function App() {
         <SidebarContent className="pt-4">
           <div className="hidden items-center gap-2 px-3 transition-[gap] duration-200 ease-in-out group-data-[collapsible=icon]:gap-0 md:flex"><SidebarTrigger className="size-10 shrink-0 rounded-lg p-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:!size-6" /><span className="max-w-[96pt] overflow-hidden text-xl font-extrabold tracking-[-.04em] whitespace-nowrap text-sidebar-foreground transition-[max-width,opacity] duration-200 ease-in-out group-data-[collapsible=icon]:max-w-0 group-data-[collapsible=icon]:opacity-0">OPOS</span></div>
           <SidebarMenu className="gap-2 px-3">
-            {([{ key: 'pos', label: 'POS', icon: ShoppingCart }, ...(restaurantEnabled ? [{ key: 'tables' as const, label: 'Tables', icon: Armchair }] : []), { key: 'reports', label: 'Reports', icon: ChartNoAxesColumn }, { key: 'inventory', label: 'Menu', icon: Utensils }, { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }] as const).map(({ key, label, icon: Icon }) => (
+            {([{ key: 'pos', label: 'POS', icon: ShoppingCart }, ...(restaurantEnabled ? [{ key: 'tables' as const, label: 'Tables', icon: DiningTableIcon }] : []), { key: 'reports', label: 'Reports', icon: ChartNoAxesColumn }, { key: 'inventory', label: 'Menu', icon: Utensils }, { key: 'dashboard', label: 'Promotions', icon: TicketPercent }] as const).map(({ key, label, icon: Icon }) => (
               <SidebarMenuItem key={key}>
                 <SidebarMenuButton className="h-10 px-3 !transition-none group-data-[collapsible=icon]:!h-10 group-data-[collapsible=icon]:!w-full group-data-[collapsible=icon]:!p-3" isActive={tab === key} onClick={() => selectTab(key)} aria-label={label}>
                   <Icon /><span className="transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">{label}</span>
@@ -592,9 +593,8 @@ export function App() {
             <section className="min-w-0">
               {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} request={api} refresh={refresh} openOrder={openTableOrder} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
               {tab === 'dashboard' && <>
-                <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center"><PageHeading title="Dashboard" /></div>
+                <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center"><PageHeading title="Promotions" /></div>
                 <Card className="mb-inset gap-inset border-0 bg-background p-inset shadow-sm">
-                  <CardHeader className="px-0"><CardTitle>Promotions</CardTitle></CardHeader>
                   <CardContent className="px-0">
                     <form onSubmit={savePromotion} className="grid gap-4 lg:grid-cols-3 lg:items-start">
                       <div className="space-y-2"><Label htmlFor="promotion-name">Name</Label><Input id="promotion-name" placeholder="Weekend special" value={promotionName} onChange={event => setPromotionName(event.target.value)} required maxLength={80} /></div>
@@ -613,7 +613,7 @@ export function App() {
               </>}
               {tab === 'pos' && <>
                 <div className="mb-inset grid min-h-[calc(var(--radius-card)*2)] grid-cols-2 items-center gap-inset sm:grid-cols-3 lg:grid-cols-4"><div className="col-span-2 flex min-w-0 items-center gap-inset lg:col-span-3"><PageHeading title="POS" />{menuCategories.length > 0 && <CategorySelector categories={visibleCategories} value={selectedCategory} onChange={setSelectedCategory} />}</div><Input aria-label="Search products" placeholder="Search your catalog..." value={search} onChange={event => setSearch(event.target.value)} className="col-span-2 h-[calc(var(--radius-card)*2)] w-full rounded-full border-0 bg-background px-4 sm:col-span-1" /></div>
-                {activeTableId !== null && <Card className="mb-inset gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="flex flex-wrap items-center justify-between gap-3 px-0"><div className="flex items-center gap-2 font-semibold"><Armchair className="size-5 text-primary" />{activeTable?.name || `Table ${activeTableId}`}{activeTable?.openedAt && <span className="text-xs font-normal text-muted-foreground">{activeTable.guests} guests</span>}</div><div className="flex flex-wrap gap-2">{activeTable && activeTable.version !== activeTableVersion && <Button variant="outline" size="sm" disabled={busy} onClick={() => { if (activeTable.openedAt) { setCart(structuredClone(activeTable.order)); setActiveTableVersion(activeTable.version) } else { setCart([]); setActiveTableId(null); setActiveTableVersion(null); setTab('tables') } }}>Reload saved order</Button>}<Button variant="outline" size="sm" disabled={busy} onClick={leaveTableOrder}>Tables</Button></div></CardContent></Card>}
+                {activeTableId !== null && <Card className="mb-inset gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="flex flex-wrap items-center justify-between gap-3 px-0"><div className="flex items-center gap-2 font-semibold"><DiningTableIcon className="size-5 text-primary" />{activeTable?.name || `Table ${activeTableId}`}{activeTable?.openedAt && <span className="text-xs font-normal text-muted-foreground">{activeTable.guests} guests</span>}</div><div className="flex flex-wrap gap-2">{activeTable && activeTable.version !== activeTableVersion && <Button variant="outline" size="sm" disabled={busy} onClick={() => { if (activeTable.openedAt) { setCart(structuredClone(activeTable.order)); setActiveTableVersion(activeTable.version) } else { setCart([]); setActiveTableId(null); setActiveTableVersion(null); setTab('tables') } }}>Reload saved order</Button>}<Button variant="outline" size="sm" disabled={busy} onClick={leaveTableOrder}>Tables</Button></div></CardContent></Card>}
                 {matching.length ? <div className="grid grid-cols-2 content-start gap-inset sm:grid-cols-3 lg:grid-cols-4">
                   {matching.map(product => { const img = product.image || productImages[product.name.trim().toLowerCase()]; return <Card key={product.id} className="gap-0 border-0 bg-background py-0 shadow-sm transition-shadow duration-300 ease-in-out hover:shadow-md">
                     <Button variant="ghost" className="h-full w-full flex-col items-start justify-start gap-inset rounded-card p-inset text-left whitespace-normal text-foreground duration-300 ease-in-out hover:bg-[#f8faff] hover:text-foreground" onClick={() => { if (product.addons.length) { setSelectingProduct(product); setSelectedAddons([]) } else addToCart(product) }}>
