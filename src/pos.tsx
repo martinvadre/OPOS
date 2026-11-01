@@ -56,6 +56,16 @@ const effectLabel = (effect: PromotionEffect) => effect.type === 'free_addon' ? 
 const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const shiftDate = (day: string, amount: number) => { const date = new Date(`${day}T12:00:00`); date.setDate(date.getDate() + amount); return dateKey(date) }
 const dayCount = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1
+function savedReportRange() {
+  const today = dateKey(new Date())
+  const fallback = { from: shiftDate(today, -6), to: today }
+  try {
+    const saved = JSON.parse(localStorage.getItem('opos-report-range') || 'null')
+    const validDay = (day: unknown) => typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) && dateKey(new Date(`${day}T12:00:00`)) === day
+    if (validDay(saved?.from) && validDay(saved?.to) && saved.to <= today && dayCount(saved.from, saved.to) >= 1 && dayCount(saved.from, saved.to) <= 366) return { from: saved.from as string, to: saved.to as string }
+  } catch { /* Use the default range if the saved preference is invalid. */ }
+  return fallback
+}
 function requestId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16))
   bytes[6] = (bytes[6] & 15) | 64
@@ -115,8 +125,8 @@ export function App() {
   const [expandedSaleId, setExpandedSaleId] = useState<number | null>(null)
   const [renderedSaleId, setRenderedSaleId] = useState<number | null>(null)
   const collapseSaleTimer = useRef<number | null>(null)
-  const [reportFrom, setReportFrom] = useState(() => shiftDate(dateKey(new Date()), -6))
-  const [reportTo, setReportTo] = useState(() => dateKey(new Date()))
+  const [reportRange, setReportRange] = useState(savedReportRange)
+  const { from: reportFrom, to: reportTo } = reportRange
   const [draftFrom, setDraftFrom] = useState(reportFrom)
   const [draftTo, setDraftTo] = useState(reportTo)
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -171,6 +181,7 @@ export function App() {
   useEffect(() => { localStorage.setItem('iaun-tab', tab) }, [tab])
   useEffect(() => { localStorage.setItem('opos-language', language); return applyLanguage(language) }, [language])
   useEffect(() => { if (reportView) localStorage.setItem('iaun-report-view', reportView); else localStorage.removeItem('iaun-report-view') }, [reportView])
+  useEffect(() => { localStorage.setItem('opos-report-range', JSON.stringify(reportRange)) }, [reportRange])
   useEffect(() => { if (accountId !== null && activeTableId === null) localStorage.setItem(`iaun-cart:${accountId}`, JSON.stringify(cart)) }, [cart, accountId, activeTableId])
   useEffect(() => {
     if (!authenticated) return
@@ -636,7 +647,7 @@ export function App() {
                       <div className="mb-3 flex items-center justify-between"><Button variant="ghost" size="icon-sm" aria-label="Previous month" onClick={() => setCalendarMonth(dateKey(new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, 1)))}><ChevronLeft /></Button><strong className="text-sm">{monthDate.toLocaleDateString(language === 'th' ? 'th-TH' : 'en-GB', { month: 'long', year: 'numeric' })}</strong><Button variant="ghost" size="icon-sm" aria-label="Next month" onClick={() => setCalendarMonth(dateKey(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1)))}><ChevronRight /></Button></div>
                       <div className="grid grid-cols-7 text-center text-xs text-muted-foreground">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <span key={day} className="py-1">{day}</span>)}</div>
                       <div className="grid grid-cols-7 gap-y-1">{Array.from({ length: monthDate.getDay() + monthLength }, (_, index) => { const number = index - monthDate.getDay() + 1; if (number < 1) return <span key={index} />; const day = `${calendarMonth.slice(0, 7)}-${String(number).padStart(2, '0')}`; const start = day === draftFrom; const end = day === draftTo; const middle = day > draftFrom && day < draftTo; return <button key={day} type="button" disabled={day > today} aria-label={new Date(`${day}T12:00:00`).toLocaleDateString(language === 'th' ? 'th-TH' : 'en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} aria-pressed={day >= draftFrom && day <= draftTo} onClick={() => selectReportDay(day)} className={`relative flex h-8 items-center justify-center text-sm transition-colors disabled:text-muted-foreground/40 ${middle ? 'bg-primary/10 text-primary' : 'hover:bg-muted'} ${start && !end ? 'before:absolute before:inset-y-0 before:right-0 before:w-1/2 before:bg-primary/10' : ''} ${end && !start ? 'before:absolute before:inset-y-0 before:left-0 before:w-1/2 before:bg-primary/10' : ''}`}><span className={`relative z-10 flex size-8 items-center justify-center rounded-full ${start || end ? 'bg-primary text-white' : ''}`}>{number}</span></button> })}</div>
-                      <div className="mt-4 flex justify-end gap-2"><Button variant="outline" size="sm" onClick={() => setDatePickerOpen(false)}>Cancel</Button><Button size="sm" disabled={dayCount(draftFrom, draftTo) > 366} onClick={() => { setReportFrom(draftFrom); setReportTo(draftTo); setDatePickerOpen(false) }}>Select</Button></div>
+                      <div className="mt-4 flex justify-end gap-2"><Button variant="outline" size="sm" onClick={() => setDatePickerOpen(false)}>Cancel</Button><Button size="sm" disabled={dayCount(draftFrom, draftTo) > 366} onClick={() => { setReportRange({ from: draftFrom, to: draftTo }); setDatePickerOpen(false) }}>Select</Button></div>
                     </Popover.Content></Popover.Portal>
                   </Popover.Root>
                 </div>
