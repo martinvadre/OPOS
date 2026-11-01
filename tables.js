@@ -45,6 +45,21 @@ function tableMutation(data, route, method, input) {
     if (!validItems(input.items)) return fail(400, 'Invalid table order');
     if (input.items.some(item => { const product = data.products.find(product => product.id === item.id && product.active && !product.hidden); return !product || item.addons.some(index => index >= (product.addons || []).length); })) return fail(409, 'Product or add-on unavailable. Refresh and try again.');
     table.order = input.items.map(item => ({ id: item.id, quantity: item.quantity, addons: item.addons }));
+  } else if (input.action === 'guests') {
+    if (!table.openedAt) return fail(409, 'Open the table before changing guests');
+    if (!Number.isSafeInteger(input.guests) || input.guests < 1 || input.guests > table.seats) return fail(400, `Enter 1–${table.seats} guests`);
+    table.guests = input.guests;
+  } else if (input.action === 'move') {
+    if (!table.openedAt) return fail(409, 'Open the table before moving it');
+    if (!Number.isSafeInteger(input.destinationId) || !Number.isSafeInteger(input.destinationVersion)) return fail(400, 'Choose an available table');
+    const destination = data.tables.find(candidate => candidate.id === input.destinationId && candidate.active !== false && candidate.id !== table.id);
+    if (!destination || destination.openedAt || destination.version !== input.destinationVersion) return fail(409, 'Destination table is no longer available. Refresh and try again.');
+    if (destination.seats < table.guests) return fail(409, 'Destination table has too few seats');
+    destination.guests = table.guests; destination.openedAt = table.openedAt; destination.order = table.order;
+    destination.version += 1;
+    table.guests = 0; table.openedAt = null; table.order = [];
+    table.version += 1;
+    return { status: 200, value: destination, save: true };
   } else if (input.action === 'close') {
     if (table.order.length) return fail(409, 'Check out or clear the saved order before closing this table');
     table.guests = 0; table.openedAt = null;

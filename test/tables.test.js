@@ -33,3 +33,31 @@ test('tables protect occupied visits, saved orders, and concurrent edits', () =>
   assert.equal(tableState(data).tables.length, 0);
   assert.equal(tableMutation(data, 'restaurant', 'PUT', { enabled: false }).status, 200);
 });
+
+test('moving a table carries its order and guests, then allows the guest count to change', () => {
+  const data = { restaurantEnabled: true, products: [{ id: 1, active: true, addons: [] }] };
+  const source = tableMutation(data, 'tables', 'POST', { name: '1', seats: 4 }).value;
+  const destination = tableMutation(data, 'tables', 'POST', { name: '2', seats: 3 }).value;
+  const small = tableMutation(data, 'tables', 'POST', { name: '3', seats: 1 }).value;
+  const patch = (table, input) => tableMutation(data, `tables/${table.id}`, 'PATCH', { version: table.version, ...input });
+  assert.equal(patch(source, { action: 'open', guests: 2 }).status, 200);
+  assert.equal(patch(source, { action: 'order', items: [{ id: 1, quantity: 2, addons: [] }] }).status, 200);
+  assert.equal(patch(source, { action: 'move', destinationId: small.id, destinationVersion: small.version }).status, 409);
+  assert.equal(patch(source, { action: 'move', destinationId: destination.id, destinationVersion: 0 }).status, 409);
+  const openedAt = source.openedAt;
+  const moved = patch(source, { action: 'move', destinationId: destination.id, destinationVersion: destination.version });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.value.id, destination.id);
+  assert.equal(source.openedAt, null);
+  assert.deepEqual(source.order, []);
+  assert.equal(destination.openedAt, openedAt);
+  assert.deepEqual(destination.order, [{ id: 1, quantity: 2, addons: [] }]);
+  assert.equal(destination.guests, 2);
+  assert.equal(patch(source, { action: 'guests', guests: 1 }).status, 409);
+  assert.equal(patch(destination, { action: 'guests', guests: 4 }).status, 400);
+  assert.equal(patch(destination, { action: 'guests', guests: 3 }).status, 200);
+  assert.equal(destination.guests, 3);
+  assert.equal(tableForSale(data, { tableId: destination.id, tableVersion: destination.version, items: destination.order }).table, destination);
+  assert.equal(patch(destination, { action: 'move', destinationId: source.id, destinationVersion: source.version }).status, 200);
+  assert.equal(source.guests, 3);
+});

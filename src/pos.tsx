@@ -26,8 +26,9 @@ import { CategorySelector } from '@/category-selector'
 import { applyLanguage, type Language } from '@/language'
 
 type Addon = { name: string; price: number }
-type Product = { id: number; name: string; category?: string; price: number; addons: Addon[]; hidden: boolean; image?: string }
-type Sale = { id: number; date: string; total: number; discount?: number; payment: string; items: { id: number; name: string; price: number; quantity: number; addons?: Addon[] }[] }
+type Priority = 'high' | 'medium' | 'low'
+type Product = { id: number; name: string; category?: string; price: number; priority: Priority; addons: Addon[]; hidden: boolean; image?: string }
+type Sale = { id: number; date: string; total: number; discount?: number; payment: string; table?: { id: number; name: string; guests: number } | null; items: { id: number; name: string; price: number; quantity: number; addons?: Addon[] }[] }
 type CartItem = { id: number; quantity: number; addons: number[] }
 type PromotionEffect = { type: 'fixed' | 'percent'; value: number } | { type: 'free_addon'; addonName: string }
 type Promotion = { id: number; name: string; effects?: PromotionEffect[]; type?: 'fixed' | 'percent'; value?: number; categories?: string[] | null; productIds?: number[] | null; hidden?: boolean }
@@ -37,13 +38,15 @@ const effectToForm = (effect: PromotionEffect): EffectForm => effect.type === 'f
 const promotionTypeLabels: Record<EffectForm['type'], string> = { none: 'None', fixed: 'Baht off', percent: 'Percent off', free_addon: 'Free add-on' }
 type Tab = 'dashboard' | 'pos' | 'inventory' | 'reports' | 'settings' | 'tables'
 type Payment = 'cash' | 'promptpay' | `manual:${string}`
-type ProductForm = { name: string; category: string; price: string; addons: { name: string; price: string }[]; image: string; imageName: string }
-const emptyForm = (): ProductForm => ({ name: '', category: '', price: '', addons: [], image: '', imageName: '' })
+type ProductForm = { name: string; category: string; price: string; priority: Priority; addons: { name: string; price: string }[]; image: string; imageName: string }
+const emptyForm = (): ProductForm => ({ name: '', category: '', price: '', priority: 'medium', addons: [], image: '', imageName: '' })
 const cartKey = (item: CartItem) => `${item.id}:${item.addons.join(',')}`
 const baht = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' })
 const money = (satang: number) => baht.format(satang / 100)
 const paymentLabel = (payment: string) => payment === 'cash' ? 'Cash' : payment === 'promptpay' ? 'PromptPay' : payment.startsWith('manual:') ? payment.slice(7) : payment
 const menuCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+const priorityRank: Record<Priority, number> = { high: 0, medium: 1, low: 2 }
+const priorityLabel: Record<Priority, string> = { high: 'High', medium: 'Medium', low: 'Low' }
 const toCents = (value: string) => Math.round(Number(value) * 100)
 function cashKeyValue(value: string, key: string) {
   if (key === 'Clear' || key === 'Delete') return ''
@@ -119,7 +122,7 @@ export function App() {
   const [reportView, setReportView] = useState<'sales' | 'menu' | null>(() => { const saved = localStorage.getItem('iaun-report-view'); return saved === 'sales' || saved === 'menu' ? saved : null })
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [menuSort, setMenuSort] = useState<{ key: 'name' | 'category'; direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' })
+  const [menuSort, setMenuSort] = useState<{ key: 'name' | 'category' | 'priority'; direction: 'asc' | 'desc' }>({ key: 'priority', direction: 'asc' })
   const [reportSearch, setReportSearch] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('all')
   const [paymentSort, setPaymentSort] = useState<'asc' | 'desc' | null>(null)
@@ -320,6 +323,12 @@ export function App() {
     if ((activeTableId === null && cart.length) || tableOrderChanged) return error(activeTableId === null ? 'Finish or clear the current sale before opening a table order' : 'Save the current table order before switching tables')
     setActiveTableId(table.id); setActiveTableVersion(table.version); setCart(structuredClone(table.order)); setSelectedPromotionId(null); setTab('pos'); setCheckout(false); saleRequestId.current = requestId(); setNotice(null)
   }
+  async function moveTableOrder(source: DiningTable, destination: DiningTable) {
+    if (activeTableId === source.id && tableOrderChanged) throw new Error('Save the current table order before moving it')
+    const moved = await api<DiningTable>(`tables/${source.id}`, 'PATCH', { action: 'move', version: source.version, destinationId: destination.id, destinationVersion: destination.version })
+    if (activeTableId === source.id) { setActiveTableId(moved.id); setActiveTableVersion(moved.version) }
+    return moved
+  }
   function leaveTableOrder() {
     if (tableOrderChanged) return error('Save the table order before leaving it')
     setActiveTableId(null); setActiveTableVersion(null); setCart([]); setSelectedPromotionId(null); setTab('tables')
@@ -379,12 +388,12 @@ export function App() {
   const suggestedCategories = menuCategories.filter(category => category.toLowerCase().includes(form.category.trim().toLowerCase())).slice(0, 6)
   const visibleCategories = Array.from(new Set(products.filter(product => !product.hidden).map(product => product.category || ''))).sort((a, b) => a.localeCompare(b))
   useEffect(() => { if (selectedCategory !== null && !visibleCategories.includes(selectedCategory)) setSelectedCategory(null) }, [products, selectedCategory])
-  const matching = products.filter(p => !p.hidden && (selectedCategory === null || (p.category || '') === selectedCategory) && p.name.toLowerCase().includes(search.trim().toLowerCase()))
+  const matching = products.filter(p => !p.hidden && (selectedCategory === null || (p.category || '') === selectedCategory) && p.name.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => priorityRank[a.priority] - priorityRank[b.priority] || menuCollator.compare(a.name, b.name))
   const sortedMenu = [...products].sort((a, b) => {
-    const comparison = menuCollator.compare(a[menuSort.key] || '', b[menuSort.key] || '')
+    const comparison = menuSort.key === 'priority' ? priorityRank[a.priority] - priorityRank[b.priority] : menuCollator.compare(a[menuSort.key] || '', b[menuSort.key] || '')
     return comparison ? comparison * (menuSort.direction === 'asc' ? 1 : -1) : menuCollator.compare(a.name, b.name)
   })
-  function sortMenu(key: 'name' | 'category') {
+  function sortMenu(key: 'name' | 'category' | 'priority') {
     setMenuSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
   }
   const paymentTypes = Array.from(new Set(['cash', ...(promptpayEnabled ? ['promptpay'] : manualPayments.map(name => `manual:${name}`)), ...sales.map(sale => sale.payment)]))
@@ -400,6 +409,9 @@ export function App() {
   const priorSum = priorSales.reduce((sum, sale) => sum + sale.total, 0)
   const discountSum = filteredSales.reduce((sum, sale) => sum + (sale.discount || 0), 0)
   const itemCount = filteredSales.reduce((sum, sale) => sum + sale.items.reduce((count, item) => count + item.quantity, 0), 0)
+  const dineInSales = filteredSales.filter(sale => sale.table?.guests)
+  const dineInGuests = dineInSales.reduce((sum, sale) => sum + sale.table!.guests, 0)
+  const dineInTotal = dineInSales.reduce((sum, sale) => sum + sale.total, 0)
   const dailySales = Array.from({ length: reportDays }, (_, index) => { const day = shiftDate(reportFrom, index); const bills = filteredSales.filter(sale => dateKey(new Date(sale.date)) === day); return { day, total: bills.reduce((sum, sale) => sum + sale.total, 0), bills: bills.length } })
   const chartSales = reportDays === 1 ? Array.from({ length: 24 }, (_, hour) => { const bills = filteredSales.filter(sale => new Date(sale.date).getHours() === hour); return { day: `${String(hour).padStart(2, '0')}:00`, total: bills.reduce((sum, sale) => sum + sale.total, 0), bills: bills.length } }) : dailySales
   const changePercent = priorSum ? ((saleSum - priorSum) / priorSum) * 100 : null
@@ -421,7 +433,7 @@ export function App() {
   function openProduct(product?: Product) {
     setEditingId(product?.id ?? null)
     const initialImage = product ? (product.image ?? productImages[product.name.trim().toLowerCase()] ?? '') : ''
-    setForm(product ? { name: product.name, category: product.category || '', price: (product.price / 100).toFixed(2), addons: product.addons.map(addon => ({ name: addon.name, price: (addon.price / 100).toFixed(2) })), image: initialImage, imageName: '' } : emptyForm())
+    setForm(product ? { name: product.name, category: product.category || '', price: (product.price / 100).toFixed(2), priority: product.priority, addons: product.addons.map(addon => ({ name: addon.name, price: (addon.price / 100).toFixed(2) })), image: initialImage, imageName: '' } : emptyForm())
     setProductDialog(true)
   }
   function selectImage(file?: File) {
@@ -451,7 +463,7 @@ export function App() {
     setBusy(true)
     try {
       const categoryName = form.category.trim()
-      const payload = { name: form.name.trim(), category: menuCategories.find(category => category.toLowerCase() === categoryName.toLowerCase()) || categoryName, price: toCents(form.price), addons: form.addons.map(addon => ({ name: addon.name.trim(), price: toCents(addon.price) })), image: form.image }
+      const payload = { name: form.name.trim(), category: menuCategories.find(category => category.toLowerCase() === categoryName.toLowerCase()) || categoryName, price: toCents(form.price), priority: form.priority, addons: form.addons.map(addon => ({ name: addon.name.trim(), price: toCents(addon.price) })), image: form.image }
       await api(editingId ? `products/${editingId}` : 'products', editingId ? 'PUT' : 'POST', payload)
       setProductDialog(false)
       await refresh()
@@ -591,7 +603,7 @@ export function App() {
           {notification}
           <div className={tab === 'pos' ? 'grid items-start gap-inset lg:grid-cols-[minmax(0,1fr)_255pt] xl:grid-cols-[minmax(0,1fr)_270pt]' : 'block'}>
             <section className="min-w-0">
-              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} request={api} refresh={refresh} openOrder={openTableOrder} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
+              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} request={api} refresh={refresh} openOrder={openTableOrder} moveOrder={moveTableOrder} onGuestUpdated={table => { if (activeTableId === table.id) setActiveTableVersion(table.version) }} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
               {tab === 'dashboard' && <>
                 <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center"><PageHeading title="Promotions" /></div>
                 <Card className="mb-inset gap-inset border-0 bg-background p-inset shadow-sm">
@@ -629,8 +641,8 @@ export function App() {
               {tab === 'inventory' && <>
                 <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] flex-wrap items-center justify-between gap-3"><PageHeading title="Menu" /><div className="flex flex-wrap items-center gap-2"><MenuImport names={products.map(product => product.name)} onError={error} onImport={async csv => { const result = await api<{ added: number; skipped: number }>('products/import', 'POST', { csv }); await refresh(); setNotice({ text: `${result.added} menu ${result.added === 1 ? 'item' : 'items'} added${result.skipped ? ` · ${result.skipped} skipped` : ''}`, error: false }) }} /><Button className="h-[calc(var(--radius-card)*2)] rounded-full has-[>svg]:px-inset" onClick={() => openProduct()}><Plus /> Add product</Button></div></div>
                 {products.length ? <Card className="gap-0 overflow-hidden border-0 bg-background py-0 shadow-sm [&_tr]:border-border">
-                  <CardContent className="px-0"><Table><TableHeader><TableRow>{([{ key: 'name', label: 'Product', width: 'w-[28%] first:pl-inset' }, { key: 'category', label: 'Category', width: 'w-[18%]' }] as const).map(column => <TableHead key={column.key} className={column.width} aria-sort={menuSort.key === column.key ? menuSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="inline-flex items-center gap-2 rounded-sm py-2 transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-ring" aria-label={`Sort ${column.label.toLowerCase()} ${menuSort.key === column.key && menuSort.direction === 'asc' ? 'Z to A' : 'A to Z'}`} onClick={() => sortMenu(column.key)}>{column.label}{menuSort.key !== column.key ? <ArrowUpDown className="size-3.5" aria-hidden="true" /> : menuSort.direction === 'asc' ? <ArrowUp className="size-3.5 text-primary" aria-hidden="true" /> : <ArrowDown className="size-3.5 text-primary" aria-hidden="true" />}</button></TableHead>)}<TableHead className="w-[14%]">Price</TableHead><TableHead className="w-[22%]">Add-ons</TableHead><TableHead className="w-[18%] text-right last:pr-inset">Actions</TableHead></TableRow></TableHeader>
-                    <TableBody>{sortedMenu.map(product => <TableRow key={product.id} className={product.hidden ? 'text-muted-foreground' : undefined}><TableCell className="font-medium first:pl-inset"><span translate="no">{product.name}</span>{product.hidden && <span className="ml-2 text-xs font-normal text-muted-foreground">Hidden</span>}</TableCell><TableCell>{product.category || '—'}</TableCell><TableCell>{money(product.price)}</TableCell><TableCell>{product.addons.length ? product.addons.map(addon => `${addon.name} ${money(addon.price)}`).join(', ') : '—'}</TableCell><TableCell className="text-right last:pr-2"><div className="flex items-center justify-end gap-2"><Button variant="ghost" size="icon-sm" className={`rounded-full ${product.hidden ? 'text-muted-foreground hover:text-muted-foreground' : 'text-primary hover:text-primary'}`} aria-label={`${product.hidden ? 'Show' : 'Hide'} ${product.name}`} onClick={() => api(`products/${product.id}`, 'PATCH', { hidden: !product.hidden }).then(refresh).catch(error)}>{product.hidden ? <EyeOff /> : <Eye />}</Button><Button variant="ghost" size="icon-sm" className="translate-x-1 rounded-full" aria-label={`Edit ${product.name}`} onClick={() => openProduct(product)}><SquarePen /></Button><Button variant="ghost" size="icon-sm" className="rounded-full text-destructive hover:text-destructive" aria-label={`Delete ${product.name}`} onClick={() => setDeletingId(product.id)}><Trash2 /></Button></div></TableCell></TableRow>)}</TableBody>
+                  <CardContent className="px-0"><Table><TableHeader><TableRow>{([{ key: 'name', label: 'Product', width: 'w-[24%] first:pl-inset' }, { key: 'category', label: 'Category', width: 'w-[14%]' }, { key: 'priority', label: 'Priority', width: 'w-[14%]' }] as const).map(column => <TableHead key={column.key} className={column.width} aria-sort={menuSort.key === column.key ? menuSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="inline-flex items-center gap-2 rounded-sm py-2 transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-ring" aria-label={`Sort ${column.label.toLowerCase()} ${column.key === 'priority' ? menuSort.key === column.key && menuSort.direction === 'asc' ? 'Low to High' : 'High to Low' : menuSort.key === column.key && menuSort.direction === 'asc' ? 'Z to A' : 'A to Z'}`} onClick={() => sortMenu(column.key)}>{column.label}{menuSort.key !== column.key ? <ArrowUpDown className="size-3.5" aria-hidden="true" /> : menuSort.direction === 'asc' ? <ArrowUp className="size-3.5 text-primary" aria-hidden="true" /> : <ArrowDown className="size-3.5 text-primary" aria-hidden="true" />}</button></TableHead>)}<TableHead className="w-[12%]">Price</TableHead><TableHead className="w-[20%]">Add-ons</TableHead><TableHead className="w-[16%] text-right last:pr-inset">Actions</TableHead></TableRow></TableHeader>
+                    <TableBody>{sortedMenu.map(product => <TableRow key={product.id} className={product.hidden ? 'text-muted-foreground' : undefined}><TableCell className="font-medium first:pl-inset"><span translate="no">{product.name}</span>{product.hidden && <span className="ml-2 text-xs font-normal text-muted-foreground">Hidden</span>}</TableCell><TableCell>{product.category || '—'}</TableCell><TableCell>{priorityLabel[product.priority]}</TableCell><TableCell>{money(product.price)}</TableCell><TableCell>{product.addons.length ? product.addons.map(addon => `${addon.name} ${money(addon.price)}`).join(', ') : '—'}</TableCell><TableCell className="text-right last:pr-2"><div className="flex items-center justify-end gap-2"><Button variant="ghost" size="icon-sm" className={`rounded-full ${product.hidden ? 'text-muted-foreground hover:text-muted-foreground' : 'text-primary hover:text-primary'}`} aria-label={`${product.hidden ? 'Show' : 'Hide'} ${product.name}`} onClick={() => api(`products/${product.id}`, 'PATCH', { hidden: !product.hidden }).then(refresh).catch(error)}>{product.hidden ? <EyeOff /> : <Eye />}</Button><Button variant="ghost" size="icon-sm" className="translate-x-1 rounded-full" aria-label={`Edit ${product.name}`} onClick={() => openProduct(product)}><SquarePen /></Button><Button variant="ghost" size="icon-sm" className="rounded-full text-destructive hover:text-destructive" aria-label={`Delete ${product.name}`} onClick={() => setDeletingId(product.id)}><Trash2 /></Button></div></TableCell></TableRow>)}</TableBody>
                   </Table></CardContent>
                 </Card> : <Card className="min-h-64 items-center justify-center border-0 bg-background shadow-sm"><CardContent className="flex flex-col items-center text-center"><span className="mb-4 grid size-12 place-items-center rounded-lg bg-[#edf4fc] text-primary"><Utensils className="size-5" /></span><h2 className="font-semibold">No products in your catalog</h2><p className="mt-1 text-sm text-muted-foreground">Add a product to make it available at the register.</p></CardContent></Card>}
               </>}
@@ -657,7 +669,7 @@ export function App() {
                     <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-muted-foreground">Total sales</p><strong className="mt-2 block text-4xl font-bold tracking-tight sm:text-5xl">{money(saleSum)}</strong><p className="mt-2 text-sm text-muted-foreground">{changePercent === null ? 'No sales in the previous period' : <><span className={changePercent >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-destructive'}>{changePercent >= 0 ? '▲' : '▼'} {Math.abs(changePercent).toFixed(1)}%</span> compared with {priorFrom} – {priorTo}</>}</p></div><Button variant="secondary" size="icon" className="rounded-full" aria-label="Download sales report CSV" onClick={exportReport} disabled={!filteredSales.length}><Download /></Button></div>
                     <div className="grid gap-inset border-t-[0.75pt] border-border pt-inset xl:grid-cols-2">
                       <SalesChart data={chartSales} title={reportDays === 1 ? 'Hourly sales' : 'Daily sales'} />
-                      <div className="grid grid-cols-2 grid-rows-2 gap-3">{[[String(filteredSales.length), 'Total bills'], [money(filteredSales.length ? Math.round(saleSum / filteredSales.length) : 0), 'Avg. basket size'], [money(discountSum), 'Discounts given'], [String(itemCount), 'Items sold']].map(([value, label]) => <div key={label} className="rounded-lg border-[0.75pt] border-border p-3"><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 text-lg font-semibold tracking-tight sm:text-xl">{value}</p></div>)}</div>
+                      <div className="grid grid-cols-2 gap-3">{[[String(filteredSales.length), 'Total bills'], [money(filteredSales.length ? Math.round(saleSum / filteredSales.length) : 0), 'Avg. basket size'], [money(discountSum), 'Discounts given'], [String(itemCount), 'Items sold'], [String(dineInGuests), 'Dine-in guests'], [dineInGuests ? money(Math.round(dineInTotal / dineInGuests)) : '—', 'Dine-in avg. per guest']].map(([value, label]) => <div key={label} className="rounded-lg border-[0.75pt] border-border p-3"><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 text-lg font-semibold tracking-tight sm:text-xl">{value}</p></div>)}</div>
                     </div>
                   </CardContent>
                 </Card>
@@ -752,6 +764,7 @@ export function App() {
             <div className="space-y-2"><Label htmlFor="product-name" className="gap-1">Product name<span className="text-destructive">*</span></Label><Input className="h-10" id="product-name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required maxLength={120} /></div>
             <div className="space-y-2"><Label htmlFor="product-category">Category <span className="text-muted-foreground">(optional)</span></Label><Input className="h-10" id="product-category" placeholder="e.g. Drinks" value={form.category} maxLength={60} onChange={event => setForm({ ...form, category: event.target.value })} />{suggestedCategories.length > 0 && <div className="space-y-2"><p className="text-xs text-muted-foreground">Existing categories</p><div className="flex flex-wrap gap-2">{suggestedCategories.map(category => <Button key={category} type="button" size="sm" variant="outline" className="max-w-full border-input" onClick={() => setForm(current => ({ ...current, category }))}><span className="truncate" translate="no">{category}</span></Button>)}</div></div>}</div>
             <div className="space-y-2"><Label htmlFor="product-price" className="gap-1">Price<span className="text-destructive">*</span></Label><Input className="h-10" id="product-price" type="number" min="0" step="0.01" value={form.price} onChange={event => setForm({ ...form, price: event.target.value })} required /></div>
+            <div className="space-y-2"><Label htmlFor="product-priority">Priority</Label><select id="product-priority" className="h-10 w-full rounded-md border-[0.75pt] border-input bg-background px-3 text-sm shadow-xs focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[2.25pt] focus-visible:ring-ring/50" value={form.priority} onChange={event => setForm({ ...form, priority: event.target.value as Priority })}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select><p className="text-xs text-muted-foreground">High items appear first at checkout.</p></div>
             <div className="space-y-3"><div className="flex items-center justify-between"><Label>Add-ons</Label><Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, addons: [...form.addons, { name: '', price: '' }] })} disabled={form.addons.length >= 20}><Plus /> Add add-on</Button></div>
               {form.addons.map((addon, index) => <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_72pt_24pt] items-center gap-2"><Input aria-label={`Add-on ${index + 1} name`} placeholder="Cream cheese" value={addon.name} maxLength={80} required onChange={event => setForm({ ...form, addons: form.addons.map((value, i) => i === index ? { ...value, name: event.target.value } : value) })} /><Input aria-label={`Add-on ${index + 1} price in baht`} type="number" min="0" step="0.01" placeholder="฿10" value={addon.price} required onChange={event => setForm({ ...form, addons: form.addons.map((value, i) => i === index ? { ...value, price: event.target.value } : value) })} /><Button type="button" variant="ghost" size="icon" className="size-6 text-destructive" aria-label={`Remove add-on ${index + 1}`} onClick={() => setForm({ ...form, addons: form.addons.filter((_, i) => i !== index) })}><X /></Button></div>)}
             </div>

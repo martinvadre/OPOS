@@ -46,11 +46,11 @@ const attempts = new Map();
 const distDir = path.join(__dirname, 'dist');
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const send = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
-const products = () => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category }) => ({ id, name, price, category: category || '', image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
+const products = () => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category, priority }) => ({ id, name, price, category: category || '', priority: priority || 'medium', image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
 // shortcut: send full history for one register; paginate if sales volume makes state slow.
 const sales = () => data.sales.slice().reverse().map(({ requestId, ...sale }) => sale);
 const validAddons = addons => Array.isArray(addons) && addons.length <= 20 && addons.every(a => a && typeof a.name === 'string' && a.name.trim().length > 0 && a.name.trim().length <= 80 && Number.isSafeInteger(a.price) && a.price >= 0 && a.price <= 100000000);
-const validProduct = p => p && typeof p.name === 'string' && p.name.trim().length > 0 && p.name.trim().length <= 120 && Number.isSafeInteger(p.price) && p.price >= 0 && p.price <= 100000000 && validAddons(p.addons) && (p.category === undefined || (typeof p.category === 'string' && p.category.trim().length <= 60)) && (p.image === undefined || (typeof p.image === 'string' && p.image.length <= 2000000));
+const validProduct = p => p && typeof p.name === 'string' && p.name.trim().length > 0 && p.name.trim().length <= 120 && Number.isSafeInteger(p.price) && p.price >= 0 && p.price <= 100000000 && validAddons(p.addons) && (p.category === undefined || (typeof p.category === 'string' && p.category.trim().length <= 60)) && (p.priority === undefined || ['high', 'medium', 'low'].includes(p.priority)) && (p.image === undefined || (typeof p.image === 'string' && p.image.length <= 2000000));
 const sameOrigin = req => !req.headers.origin || req.headers.origin === `http://${req.headers.host}` || req.headers.origin === `https://${req.headers.host}`;
 async function body(req) {
   let raw = '';
@@ -180,7 +180,7 @@ async function handler(req, res) {
       if (!validProduct(p)) return send(res, 400, { error: 'Enter a valid product and add-ons' });
       const next = structuredClone(data);
       const id = Math.max(0, ...next.products.map(p => p.id)) + 1;
-      next.products.push({ id, name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
+      next.products.push({ id, name: p.name.trim(), price: p.price, priority: p.priority || 'medium', addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
       save(next);
       return send(res, 201, { id });
     }
@@ -192,7 +192,7 @@ async function handler(req, res) {
       const current = next.products.find(p => p.id === Number(match[1]) && p.active);
       if (!current) return send(res, 404, { error: 'Product not found' });
       if (productInOpenOrder(next, current.id)) return send(res, 409, { error: 'Finish open table orders before changing this product' });
-      Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.image !== undefined ? { image: p.image } : {}) });
+      Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.priority !== undefined ? { priority: p.priority } : {}), ...(p.image !== undefined ? { image: p.image } : {}) });
       save(next);
       return send(res, 200, { ok: true });
     }

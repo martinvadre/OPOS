@@ -15,11 +15,11 @@ function checkPassword(password, stored) {
   return crypto.timingSafeEqual(Buffer.from(passwordHash, 'hex'), crypto.scryptSync(password, salt, 64));
 }
 function hashPassword(password) { const salt = crypto.randomBytes(16).toString('hex'); return `${salt}:${crypto.scryptSync(password, salt, 64).toString('hex')}`; }
-const products = data => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category }) => ({ id, name, price, category: category || '', image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
+const products = data => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category, priority }) => ({ id, name, price, category: category || '', priority: priority || 'medium', image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
 // shortcut: send full history for one register; paginate if sales volume makes state slow.
 const sales = data => data.sales.slice().reverse().map(({ requestId, ...sale }) => sale);
 const validAddons = addons => Array.isArray(addons) && addons.length <= 20 && addons.every(a => a && typeof a.name === 'string' && a.name.trim().length > 0 && a.name.trim().length <= 80 && Number.isSafeInteger(a.price) && a.price >= 0 && a.price <= 100000000);
-const validProduct = p => p && typeof p.name === 'string' && p.name.trim().length > 0 && p.name.trim().length <= 120 && Number.isSafeInteger(p.price) && p.price >= 0 && p.price <= 100000000 && validAddons(p.addons) && (p.category === undefined || (typeof p.category === 'string' && p.category.trim().length <= 60)) && (p.image === undefined || (typeof p.image === 'string' && p.image.length <= 2000000));
+const validProduct = p => p && typeof p.name === 'string' && p.name.trim().length > 0 && p.name.trim().length <= 120 && Number.isSafeInteger(p.price) && p.price >= 0 && p.price <= 100000000 && validAddons(p.addons) && (p.category === undefined || (typeof p.category === 'string' && p.category.trim().length <= 60)) && (p.priority === undefined || ['high', 'medium', 'low'].includes(p.priority)) && (p.image === undefined || (typeof p.image === 'string' && p.image.length <= 2000000));
 
 async function body(req) {
   const value = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : req.body;
@@ -235,7 +235,7 @@ module.exports = async function handler(req, res) {
       if (!validProduct(p)) return send(res, 400, { error: 'Enter a valid product and add-ons' });
       const result = await mutate(accountId, data => {
         const id = Math.max(0, ...data.products.map(p => p.id)) + 1;
-        data.products.push({ id, name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
+        data.products.push({ id, name: p.name.trim(), price: p.price, priority: p.priority || 'medium', addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
         return { status: 201, value: { id }, save: true };
       });
       return send(res, result.status, result.value);
@@ -248,7 +248,7 @@ module.exports = async function handler(req, res) {
         const current = data.products.find(p => p.id === Number(match[1]) && p.active);
         if (!current) return { status: 404, value: { error: 'Product not found' } };
         if (productInOpenOrder(data, current.id)) return { status: 409, value: { error: 'Finish open table orders before changing this product' } };
-        Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.image !== undefined ? { image: p.image } : {}) });
+        Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.priority !== undefined ? { priority: p.priority } : {}), ...(p.image !== undefined ? { image: p.image } : {}) });
         return { status: 200, value: { ok: true }, save: true };
       });
       return send(res, result.status, result.value);
