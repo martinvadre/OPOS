@@ -62,9 +62,10 @@ const shiftDate = (day: string, amount: number) => { const date = new Date(`${da
 const dayCount = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1
 function savedReportRange() {
   const today = dateKey(new Date())
-  const fallback = { from: shiftDate(today, -6), to: today }
+  const fallback = { from: today, to: today }
   try {
-    const saved = JSON.parse(localStorage.getItem('opos-report-range') || 'null')
+    const saved = JSON.parse(localStorage.getItem('opos-report-range-v2') || 'null')
+    if (saved?.preset === 'today') return fallback
     const validDay = (day: unknown) => typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) && dateKey(new Date(`${day}T12:00:00`)) === day
     if (validDay(saved?.from) && validDay(saved?.to) && saved.to <= today && dayCount(saved.from, saved.to) >= 1 && dayCount(saved.from, saved.to) <= 366) return { from: saved.from as string, to: saved.to as string }
   } catch { /* Use the default range if the saved preference is invalid. */ }
@@ -185,7 +186,7 @@ export function App() {
   useEffect(() => { localStorage.setItem('iaun-tab', tab) }, [tab])
   useEffect(() => { localStorage.setItem('opos-language', language); return applyLanguage(language) }, [language])
   useEffect(() => { if (reportView) localStorage.setItem('iaun-report-view', reportView); else localStorage.removeItem('iaun-report-view') }, [reportView])
-  useEffect(() => { localStorage.setItem('opos-report-range', JSON.stringify(reportRange)) }, [reportRange])
+  useEffect(() => { const today = dateKey(new Date()); localStorage.setItem('opos-report-range-v2', JSON.stringify({ ...reportRange, preset: reportRange.from === today && reportRange.to === today ? 'today' : 'custom' })) }, [reportRange])
   useEffect(() => { if (accountId !== null && activeTableId === null) localStorage.setItem(`iaun-cart:${accountId}`, JSON.stringify(cart)) }, [cart, accountId, activeTableId])
   useEffect(() => {
     if (!authenticated) return
