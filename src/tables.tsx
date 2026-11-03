@@ -26,21 +26,21 @@ const money = (amount: number) => new Intl.NumberFormat('th-TH', { style: 'curre
 function TableShape({ name, seats, rotation, occupied }: { name: string; seats: number; rotation?: 0 | 90; occupied: boolean }) {
   const vertical = rotation === 90
   const long = seats > 4
-  const shape = !long ? 'size-12' : vertical ? 'h-18 w-12' : 'h-12 w-18'
+  const shape = !long ? 'size-24' : vertical ? 'h-30 w-24' : 'h-24 w-30'
   function chairs(count: number) {
-    const tracks = `repeat(${Math.max(1, Math.min(count, 12))}, 3px)`
-    return <span aria-hidden="true" className="grid gap-px" style={vertical
+    const tracks = `repeat(${Math.max(1, Math.min(count, 10))}, 6px)`
+    return <span aria-hidden="true" className="grid gap-0.5" style={vertical
       ? { gridTemplateRows: tracks, gridAutoFlow: 'column' }
       : { gridTemplateColumns: tracks }}>
       {Array.from({ length: count }, (_, index) => (
-        <span key={index} className={`size-[3px] rounded-full ${occupied ? 'bg-orange-400' : 'bg-slate-400'}`} />
+        <span key={index} className={`size-1.5 rounded-sm ${occupied ? 'bg-orange-400' : 'bg-slate-400'}`} />
       ))}
     </span>
   }
   return <span className={`flex items-center justify-center gap-1 ${vertical ? 'flex-row' : 'flex-col'}`}>
     {chairs(Math.ceil(seats / 2))}
     <span className={`${shape} grid place-items-center rounded-lg border ${occupied ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-      <span className="block max-w-full truncate px-1 text-xs font-semibold" translate="no" title={name}>{name}</span>
+      <span className="line-clamp-2 max-w-full wrap-anywhere px-2 text-center text-sm font-semibold" translate="no" title={name}>{name}</span>
     </span>
     {chairs(Math.floor(seats / 2))}
   </span>
@@ -142,15 +142,15 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
     const byPosition = new Map(tables.map(table => [table.position, table]))
     const slots = Math.ceil(Math.max(setup ? 8 : 4, ...tables.map(table => table.position + 1)) / 4) * 4
     return <div className="max-h-[60dvh] overflow-auto p-1">
-      <div className="grid min-w-[22rem] grid-cols-4 gap-2">
+      <div className="grid min-w-[34rem] grid-cols-4 gap-2">
         {Array.from({ length: slots }, (_, position) => {
           const table = byPosition.get(position)
           if (!table) {
             return setup && tables.length < 100
               ? <button key={position} type="button" disabled={busy} aria-label={`Add table at row ${Math.floor(position / 4) + 1}, column ${position % 4 + 1}`}
-                  className="grid min-h-28 place-items-center rounded-xl border border-dashed border-input text-muted-foreground hover:bg-muted"
+                  className="grid min-h-40 place-items-center rounded-xl border border-dashed border-input text-muted-foreground hover:bg-muted"
                   onClick={() => editTable(null, position)}><Plus className="size-4" /></button>
-              : <span key={position} aria-hidden="true" className="min-h-28" />
+              : <span key={position} aria-hidden="true" className="min-h-40" />
           }
           const anchor = anchorFor(table)
           const occupied = !!anchor.openedAt
@@ -162,7 +162,7 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
             aria-pressed={setup ? undefined : selected}
             disabled={setup && (busy || combined)}
             onClick={() => setup ? editTable(table) : selectTable(table)}
-            className={`flex min-h-28 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border p-1 text-center disabled:opacity-60 ${selected ? 'border-primary bg-primary/5' : setup ? 'border-border hover:bg-muted' : 'border-transparent hover:bg-muted'}`}>
+            className={`flex min-h-40 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border p-1 text-center disabled:opacity-60 ${selected ? 'border-primary bg-primary/5' : setup ? 'border-border hover:bg-muted' : 'border-transparent hover:bg-muted'}`}>
             <TableShape name={table.name} seats={table.seats} rotation={table.rotation} occupied={occupied} />
             <span className="text-xs text-muted-foreground">{status}</span>
           </button>
