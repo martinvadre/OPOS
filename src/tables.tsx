@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { ChevronDown, Clock3, Plus, RefreshCw, SquarePen, Trash2, UsersRound } from 'lucide-react'
+import { ChevronDown, Clock3, Plus, RefreshCw, RotateCw, SquarePen, Trash2, UsersRound } from 'lucide-react'
 import { DiningTableIcon } from '@/table-icon'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export type TableItem = { id: number; quantity: number; addons: number[] }
-export type DiningTable = { id: number; name: string; seats: number; guests: number; openedAt: string | null; order: TableItem[]; version: number; position: number; combinedTableIds?: number[] }
+export type DiningTable = { id: number; name: string; seats: number; guests: number; openedAt: string | null; order: TableItem[]; version: number; position: number; rotation?: 0 | 90; combinedTableIds?: number[] }
 type Props = {
   tables: DiningTable[]
   request: <T>(route: string, method?: string, payload?: unknown) => Promise<T>
@@ -23,6 +23,29 @@ type Props = {
 }
 const money = (amount: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount / 100)
 
+function TableShape({ name, seats, rotation, occupied }: { name: string; seats: number; rotation?: 0 | 90; occupied: boolean }) {
+  const vertical = rotation === 90
+  const long = seats > 4
+  const shape = !long ? 'size-12' : vertical ? 'h-18 w-12' : 'h-12 w-18'
+  function chairs(count: number) {
+    const tracks = `repeat(${Math.max(1, Math.min(count, 12))}, 3px)`
+    return <span aria-hidden="true" className="grid gap-px" style={vertical
+      ? { gridTemplateRows: tracks, gridAutoFlow: 'column' }
+      : { gridTemplateColumns: tracks }}>
+      {Array.from({ length: count }, (_, index) => (
+        <span key={index} className={`size-[3px] rounded-full ${occupied ? 'bg-orange-400' : 'bg-slate-400'}`} />
+      ))}
+    </span>
+  }
+  return <span className={`flex items-center justify-center gap-1 ${vertical ? 'flex-row' : 'flex-col'}`}>
+    {chairs(Math.ceil(seats / 2))}
+    <span className={`${shape} grid place-items-center rounded-lg border ${occupied ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+      <span className="block max-w-full truncate px-1 text-xs font-semibold" translate="no" title={name}>{name}</span>
+    </span>
+    {chairs(Math.floor(seats / 2))}
+  </span>
+}
+
 export function TablesPage({ tables, request, refresh, openOrder, transferOrder, onGuestUpdated, itemName, lineTotal, onError }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dialog, setDialog] = useState(false)
@@ -30,6 +53,7 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
   const [showForm, setShowForm] = useState(false)
   const [row, setRow] = useState('1')
   const [column, setColumn] = useState('1')
+  const [rotation, setRotation] = useState<0 | 90>(0)
   const [name, setName] = useState('')
   const [seats, setSeats] = useState('4')
   const [guests, setGuests] = useState('1')
@@ -52,12 +76,13 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
   const occupied = tables.filter(table => anchorFor(table).openedAt).length
   const validGuests = Number.isInteger(Number(guests)) && Number(guests) >= 1 && Number(guests) <= selectedCapacity
 
-  function editTable(table: DiningTable | null) {
-    const position = table?.position ?? Array.from({ length: 200 }, (_, index) => index).find(index => !tables.some(existing => existing.position === index)) ?? 0
+  function editTable(table: DiningTable | null, slot?: number) {
+    const position = table?.position ?? slot ?? Array.from({ length: 200 }, (_, index) => index).find(index => !tables.some(existing => existing.position === index)) ?? 0
     setDialogError('')
     setEditing(table)
     setName(table?.name || `Table ${Math.max(0, ...tables.map(table => table.id)) + 1}`)
     setSeats(String(table?.seats || 4))
+    setRotation(table?.rotation ?? 0)
     setRow(String(Math.floor(position / 4) + 1))
     setColumn(String(position % 4 + 1))
     setShowForm(true)
@@ -78,7 +103,7 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
     setBusy(true)
     setDialogError('')
     try {
-      await request<DiningTable>(editing ? `tables/${editing.id}` : 'tables', editing ? 'PATCH' : 'POST', { name: name.trim(), seats: Number(seats), position: (Number(row) - 1) * 4 + Number(column) - 1, ...(editing ? { action: 'details', version: editing.version } : {}) })
+      await request<DiningTable>(editing ? `tables/${editing.id}` : 'tables', editing ? 'PATCH' : 'POST', { name: name.trim(), seats: Number(seats), rotation, position: (Number(row) - 1) * 4 + Number(column) - 1, ...(editing ? { action: 'details', version: editing.version } : {}) })
       setShowForm(false); await refresh()
     } catch (cause) { setDialogError(cause instanceof Error ? cause.message : 'Could not save table') } finally { setBusy(false) }
   }
@@ -96,7 +121,7 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
   async function remove() {
     if (!removing) return
     setBusy(true)
-    try { await request(`tables/${removing.id}`, 'DELETE'); setRemoving(null); await refresh() }
+    try { await request(`tables/${removing.id}`, 'DELETE'); setRemoving(null); setShowForm(false); await refresh() }
     catch (cause) { onError(cause) } finally { setBusy(false) }
   }
   async function submitTransfer(event: FormEvent) {
@@ -113,28 +138,44 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
     } finally { setBusy(false) }
   }
 
+  function renderFloor(setup: boolean) {
+    const byPosition = new Map(tables.map(table => [table.position, table]))
+    const slots = Math.ceil(Math.max(setup ? 8 : 4, ...tables.map(table => table.position + 1)) / 4) * 4
+    return <div className="max-h-[60dvh] overflow-auto p-1">
+      <div className="grid min-w-[22rem] grid-cols-4 gap-2">
+        {Array.from({ length: slots }, (_, position) => {
+          const table = byPosition.get(position)
+          if (!table) {
+            return setup && tables.length < 100
+              ? <button key={position} type="button" disabled={busy} aria-label={`Add table at row ${Math.floor(position / 4) + 1}, column ${position % 4 + 1}`}
+                  className="grid min-h-28 place-items-center rounded-xl border border-dashed border-input text-muted-foreground hover:bg-muted"
+                  onClick={() => editTable(null, position)}><Plus className="size-4" /></button>
+              : <span key={position} aria-hidden="true" className="min-h-28" />
+          }
+          const anchor = anchorFor(table)
+          const occupied = !!anchor.openedAt
+          const combined = !!anchor.combinedTableIds?.length
+          const status = combined ? 'Combined' : occupied ? 'Occupied' : 'Available'
+          const selected = !setup && anchor.id === selectedId
+          return <button key={position} type="button"
+            aria-label={`${setup ? 'Edit ' : ''}${table.name}, ${table.seats} seats, ${status}`}
+            aria-pressed={setup ? undefined : selected}
+            disabled={setup && (busy || combined)}
+            onClick={() => setup ? editTable(table) : selectTable(table)}
+            className={`flex min-h-28 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border p-1 text-center disabled:opacity-60 ${selected ? 'border-primary bg-primary/5' : setup ? 'border-border hover:bg-muted' : 'border-transparent hover:bg-muted'}`}>
+            <TableShape name={table.name} seats={table.seats} rotation={table.rotation} occupied={occupied} />
+            <span className="text-xs text-muted-foreground">{status}</span>
+          </button>
+        })}
+      </div>
+    </div>
+  }
+
   return <>
     <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center justify-between gap-3"><h1 className="text-[21pt] font-bold leading-tight tracking-tight">Tables</h1><div className="flex items-center gap-2"><Button variant="outline" size="icon" className="rounded-full border-input" aria-label="Refresh tables" disabled={busy} onClick={async () => { setBusy(true); try { await refresh() } catch (cause) { onError(cause) } finally { setBusy(false) } }}><RefreshCw /></Button><Button className="h-[calc(var(--radius-card)*2)] rounded-full has-[>svg]:px-inset" onClick={() => { setDialogError(''); setShowForm(false); setDialog(true) }}><SquarePen />Table setup</Button></div></div>
     <div className="mb-inset flex items-center gap-4 text-sm"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-slate-400" />Available {tables.length - occupied}</span><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-orange-500" />Occupied {occupied}</span></div>
     <div className="grid items-start gap-inset xl:grid-cols-[minmax(0,1fr)_255pt]">
-      <Card className="gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="px-0">{tables.length ? <div className="max-h-[65dvh] overflow-auto pb-1"><div className="grid min-w-[24rem] auto-rows-[minmax(7rem,auto)] grid-cols-4 gap-3">
-        {[...tables].sort((a, b) => a.position - b.position).map(table => {
-          const anchor = anchorFor(table)
-          const isOccupied = !!anchor.openedAt
-          const isCombined = !!anchor.combinedTableIds?.length
-          const chairs = (count: number) => <span aria-hidden="true" className="flex w-full flex-wrap justify-center gap-0.5 px-1">
-            {Array.from({ length: count }, (_, index) => <span key={index} className={`h-1 w-1.5 rounded-full ${isOccupied ? 'bg-orange-400' : 'bg-slate-300'}`} />)}
-          </span>
-          return <button key={table.id} type="button" style={{ gridRow: Math.floor(table.position / 4) + 1, gridColumn: table.position % 4 + 1 }}
-            aria-label={`${table.name}, ${table.seats} seats, ${isCombined ? 'Combined' : isOccupied ? 'Occupied' : 'Available'}`} aria-pressed={anchor.id === selectedId} onClick={() => selectTable(table)}
-            className={`flex min-h-28 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border p-2 text-center ${anchor.id === selectedId ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-muted'}`}>
-            {chairs(Math.ceil(table.seats / 2))}
-            <span className={`w-full truncate rounded-lg border px-1 py-3 text-sm font-semibold ${isOccupied ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`} translate="no">{table.name}</span>
-            {chairs(Math.floor(table.seats / 2))}
-            <span className="text-xs text-muted-foreground">{isCombined ? 'Combined' : isOccupied ? 'Occupied' : 'Available'}</span>
-          </button>
-        })}
-      </div></div> : <div className="flex min-h-48 flex-col items-center justify-center gap-3"><DiningTableIcon className="size-8 text-primary" /><h2 className="font-semibold">No tables yet</h2></div>}</CardContent></Card>
+      <Card className="gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="px-0">{tables.length ? renderFloor(false) : <div className="flex min-h-48 flex-col items-center justify-center gap-3"><DiningTableIcon className="size-8 text-primary" /><h2 className="font-semibold">No tables yet</h2></div>}</CardContent></Card>
       <Card className="gap-inset border-0 bg-background p-inset shadow-sm">{selected ? <>
         <CardHeader className="px-0"><CardTitle translate="no">{[selected, ...tables.filter(table => selected.combinedTableIds?.includes(table.id))].map(table => table.name).join(' + ')}</CardTitle></CardHeader>
         <CardContent className="space-y-inset px-0"><div className="flex flex-wrap gap-4 text-sm text-muted-foreground"><span className="inline-flex items-center gap-2"><UsersRound className="size-4" />{selected.openedAt ? `${selected.guests} guests · ` : ''}{selectedCapacity} seats</span>{selected.openedAt && <span className="inline-flex items-center gap-2"><Clock3 className="size-4" />{new Date(selected.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}</div>
@@ -144,10 +185,10 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
       </> : <CardContent className="flex min-h-48 flex-col items-center justify-center gap-3 px-0"><DiningTableIcon className="size-8 text-primary" /><h2 className="font-semibold">Select a table</h2></CardContent>}</Card>
     </div>
     <Dialog open={dialog} onOpenChange={setDialog}>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto border-0 shadow-xl sm:max-w-lg">
+      <DialogContent className="max-h-[85dvh] grid-cols-[minmax(0,1fr)] overflow-y-auto border-0 shadow-xl sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Table setup</DialogTitle>
-          <DialogDescription>Set the table names, chair counts, and positions on the floor.</DialogDescription>
+          <DialogDescription>Tap a table to edit it, or tap an empty square to add one.</DialogDescription>
         </DialogHeader>
         {showForm ? <form onSubmit={save} className="space-y-inset">
           <div className="space-y-2"><Label htmlFor="table-name">Name</Label><Input id="table-name" value={name} onChange={event => setName(event.target.value)} required maxLength={40} /></div>
@@ -156,20 +197,18 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
             <div className="space-y-2"><Label htmlFor="table-row">Row</Label><Input id="table-row" type="number" min="1" max="50" value={row} onChange={event => setRow(event.target.value)} required /></div>
             <div className="space-y-2"><Label htmlFor="table-column">Column</Label><Input id="table-column" type="number" min="1" max="4" value={column} onChange={event => setColumn(event.target.value)} required /></div>
           </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
+            <TableShape name={name} seats={Math.min(100, Math.max(1, Math.floor(Number(seats) || 4)))} rotation={rotation} occupied={false} />
+            <Button type="button" variant="outline" onClick={() => setRotation(value => value === 0 ? 90 : 0)}><RotateCw />Rotate table</Button>
+          </div>
           {dialogError && <p role="alert" className="text-sm text-destructive">{dialogError}</p>}
           <DialogFooter>
+            {editing && <Button type="button" variant="ghost" className="mr-auto text-destructive" disabled={busy || !!anchorFor(editing).openedAt} onClick={() => setRemoving(editing)}><Trash2 />Remove</Button>}
             <Button type="button" variant="outline" disabled={busy} onClick={() => setShowForm(false)}>Cancel</Button>
             <Button disabled={busy}>{editing ? 'Save' : 'Add table'}</Button>
           </DialogFooter>
         </form> : <div className="space-y-2">
-          {[...tables].sort((a, b) => a.position - b.position).map(table => <div key={table.id} className="flex items-center gap-2 rounded-lg border px-3 py-2">
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium" translate="no">{table.name}</div>
-              <div className="text-xs text-muted-foreground">{table.seats} seats · <span>Row</span> {Math.floor(table.position / 4) + 1} · <span>Column</span> {table.position % 4 + 1}</div>
-            </div>
-            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${table.name}`} disabled={busy || !!anchorFor(table).combinedTableIds?.length} onClick={() => editTable(table)}><SquarePen /></Button>
-            <Button variant="ghost" size="icon-sm" className="text-destructive" aria-label={`Remove ${table.name}`} disabled={busy || !!anchorFor(table).openedAt} onClick={() => setRemoving(table)}><Trash2 /></Button>
-          </div>)}
+          {renderFloor(true)}
           <Button disabled={busy || tables.length >= 100} onClick={() => editTable(null)}><Plus />Add table</Button>
         </div>}
       </DialogContent>

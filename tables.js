@@ -45,9 +45,11 @@ function tableMutation(data, route, method, input) {
     if (tableState(data).tables.length >= 100) return fail(400, 'A register can have up to 100 tables');
     if (nameTaken(input.name)) return fail(409, 'Table name already exists');
     const table = { id: Math.max(0, ...data.tables.map(table => table.id)) + 1, name: input.name.trim(), seats: input.seats, guests: 0, openedAt: null, order: [], version: 1, active: true };
+    if (input.rotation !== undefined && input.rotation !== 0 && input.rotation !== 90) return fail(400, 'Choose a valid table rotation');
     const invalidPosition = positionError(input.position);
     if (invalidPosition) return invalidPosition;
     savePositions();
+    if (input.rotation !== undefined) table.rotation = input.rotation;
     table.position = input.position ?? table.position;
     if (table.position === undefined) {
       const used = new Set(tables.map(table => table.position));
@@ -72,10 +74,12 @@ function tableMutation(data, route, method, input) {
     if (!validDetails(input)) return fail(400, 'Enter a table name and 1–100 seats');
     if (nameTaken(input.name, table.id)) return fail(409, 'Table name already exists');
     if (groupIds(table).length) return fail(409, 'Close the combined table before editing it');
+    if (input.rotation !== undefined && input.rotation !== 0 && input.rotation !== 90) return fail(400, 'Choose a valid table rotation');
     const invalidPosition = positionError(input.position, table.id);
     if (invalidPosition) return invalidPosition;
     if (input.seats < table.guests) return fail(409, 'Seats cannot be fewer than the current guest count');
     savePositions();
+    if (input.rotation !== undefined) table.rotation = input.rotation;
     table.position = input.position ?? table.position;
     table.name = input.name.trim(); table.seats = input.seats;
   } else if (input.action === 'open') {
