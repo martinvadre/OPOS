@@ -319,16 +319,27 @@ export function App() {
   }
   const lineTotal = (item: CartItem) => { const product = products.find(p => p.id === item.id); return product ? (product.price + item.addons.reduce((total, index) => total + (product.addons[index]?.price || 0), 0)) * item.quantity : 0 }
   const activeTable = tables.find(table => table.id === activeTableId)
+  const activeTableName = activeTable && [activeTable, ...tables.filter(table => activeTable.combinedTableIds?.includes(table.id))]
+    .map(table => table.name).join(' + ')
   const tableOrderChanged = !!activeTable && JSON.stringify(cart.map(item => [item.id, item.quantity, item.addons])) !== JSON.stringify(activeTable.order.map(item => [item.id, item.quantity, item.addons]))
   function openTableOrder(table: DiningTable) {
     if ((activeTableId === null && cart.length) || tableOrderChanged) return error(activeTableId === null ? 'Finish or clear the current sale before opening a table order' : 'Save the current table order before switching tables')
     setActiveTableId(table.id); setActiveTableVersion(table.version); setCart(structuredClone(table.order)); setSelectedPromotionId(null); setTab('pos'); setCheckout(false); saleRequestId.current = requestId(); setNotice(null)
   }
-  async function moveTableOrder(source: DiningTable, destination: DiningTable) {
-    if (activeTableId === source.id && tableOrderChanged) throw new Error('Save the current table order before moving it')
-    const moved = await api<DiningTable>(`tables/${source.id}`, 'PATCH', { action: 'move', version: source.version, destinationId: destination.id, destinationVersion: destination.version })
-    if (activeTableId === source.id) { setActiveTableId(moved.id); setActiveTableVersion(moved.version) }
-    return moved
+  async function transferTableOrder(source: DiningTable, destination: DiningTable, action: 'move' | 'combine', guests: number) {
+    const affectsCart = activeTableId === source.id || activeTableId === destination.id
+    if (affectsCart && tableOrderChanged) throw new Error('Save the current table order first')
+    const table = await api<DiningTable>(`tables/${source.id}`, 'PATCH', {
+      action, guests, version: source.version, destinationId: destination.id, destinationVersion: destination.version,
+    })
+    if (affectsCart) {
+      setActiveTableId(table.id)
+      setActiveTableVersion(table.version)
+      setCart(structuredClone(table.order))
+      setSelectedPromotionId(null)
+      setCheckout(false)
+    }
+    return table
   }
   function leaveTableOrder() {
     if (tableOrderChanged) return error('Save the table order before leaving it')
@@ -604,7 +615,7 @@ export function App() {
           {notification}
           <div className={tab === 'pos' ? 'grid items-start gap-inset lg:grid-cols-[minmax(0,1fr)_255pt] xl:grid-cols-[minmax(0,1fr)_270pt]' : 'block'}>
             <section className="min-w-0">
-              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} request={api} refresh={refresh} openOrder={openTableOrder} moveOrder={moveTableOrder} onGuestUpdated={table => { if (activeTableId === table.id) setActiveTableVersion(table.version) }} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
+              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} request={api} refresh={refresh} openOrder={openTableOrder} transferOrder={transferTableOrder} onGuestUpdated={(table, previousVersion) => { if (activeTableId === table.id && activeTableVersion === previousVersion) setActiveTableVersion(table.version) }} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
               {tab === 'dashboard' && <>
                 <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center"><PageHeading title="Promotions" /></div>
                 <Card className="mb-inset gap-inset border-0 bg-background p-inset shadow-sm">
@@ -626,7 +637,7 @@ export function App() {
               </>}
               {tab === 'pos' && <>
                 <div className="mb-inset grid min-h-[calc(var(--radius-card)*2)] grid-cols-2 items-center gap-inset sm:grid-cols-3 lg:grid-cols-4"><div className="col-span-2 flex min-w-0 items-center gap-inset lg:col-span-3"><PageHeading title="POS" />{menuCategories.length > 0 && <CategorySelector categories={visibleCategories} value={selectedCategory} onChange={setSelectedCategory} />}</div><Input aria-label="Search products" placeholder="Search your catalog..." value={search} onChange={event => setSearch(event.target.value)} className="col-span-2 h-[calc(var(--radius-card)*2)] w-full rounded-full border-0 bg-background px-4 sm:col-span-1" /></div>
-                {activeTableId !== null && <Card className="mb-inset gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="flex flex-wrap items-center justify-between gap-3 px-0"><div className="flex items-center gap-2 font-semibold"><DiningTableIcon className="size-5 text-primary" />{activeTable?.name || `Table ${activeTableId}`}{activeTable?.openedAt && <span className="text-xs font-normal text-muted-foreground">{activeTable.guests} guests</span>}</div><div className="flex flex-wrap gap-2">{activeTable && activeTable.version !== activeTableVersion && <Button variant="outline" size="sm" disabled={busy} onClick={() => { if (activeTable.openedAt) { setCart(structuredClone(activeTable.order)); setActiveTableVersion(activeTable.version) } else { setCart([]); setActiveTableId(null); setActiveTableVersion(null); setTab('tables') } }}>Reload saved order</Button>}<Button variant="outline" size="sm" disabled={busy} onClick={leaveTableOrder}>Tables</Button></div></CardContent></Card>}
+                {activeTableId !== null && <Card className="mb-inset gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="flex flex-wrap items-center justify-between gap-3 px-0"><div className="flex items-center gap-2 font-semibold"><DiningTableIcon className="size-5 text-primary" />{activeTableName || `Table ${activeTableId}`}{activeTable?.openedAt && <span className="text-xs font-normal text-muted-foreground">{activeTable.guests} guests</span>}</div><div className="flex flex-wrap gap-2">{activeTable && activeTable.version !== activeTableVersion && <Button variant="outline" size="sm" disabled={busy} onClick={() => { if (activeTable.openedAt) { setCart(structuredClone(activeTable.order)); setActiveTableVersion(activeTable.version) } else { setCart([]); setActiveTableId(null); setActiveTableVersion(null); setTab('tables') } }}>Reload saved order</Button>}<Button variant="outline" size="sm" disabled={busy} onClick={leaveTableOrder}>Tables</Button></div></CardContent></Card>}
                 {matching.length ? <div className="grid grid-cols-2 content-start gap-inset sm:grid-cols-3 lg:grid-cols-4">
                   {matching.map(product => { const img = product.image || productImages[product.name.trim().toLowerCase()]; return <Card key={product.id} className="gap-0 border-0 bg-background py-0 shadow-sm transition-shadow duration-300 ease-in-out hover:shadow-md">
                     <Button variant="ghost" className="h-full w-full flex-col items-start justify-start gap-inset rounded-card p-inset text-left whitespace-normal text-foreground duration-300 ease-in-out hover:bg-[#f8faff] hover:text-foreground" onClick={() => { if (product.addons.length) { setSelectingProduct(product); setSelectedAddons([]) } else addToCart(product) }}>

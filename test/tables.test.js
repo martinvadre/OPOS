@@ -61,3 +61,30 @@ test('moving a table carries its order and guests, then allows the guest count t
   assert.equal(patch(destination, { action: 'move', destinationId: source.id, destinationVersion: source.version }).status, 200);
   assert.equal(source.guests, 3);
 });
+
+test('combined tables share one order and release together without changing the floor', () => {
+  const data = { restaurantEnabled: true, products: [{ id: 1, active: true, addons: [] }] };
+  const add = (name, position) => tableMutation(data, 'tables', 'POST', { name, seats: 2, position });
+  const first = add('A', 0).value;
+  const second = add('B', 5).value;
+  assert.equal(add('C', 5).status, 409);
+  const patch = (table, input) => tableMutation(data, `tables/${table.id}`, 'PATCH', { version: table.version, ...input });
+  const items = [{ id: 1, quantity: 2, addons: [] }];
+  for (const table of [first, second]) {
+    assert.equal(patch(table, { action: 'open', guests: 2 }).status, 200);
+    assert.equal(patch(table, { action: 'order', items }).status, 200);
+  }
+  const combine = { action: 'combine', destinationId: second.id, destinationVersion: second.version };
+  assert.equal(patch(first, { ...combine, destinationVersion: 1 }).status, 409);
+  assert.equal(patch(first, combine).status, 200);
+  assert.equal(first.guests, 4);
+  assert.deepEqual(first.order, [{ id: 1, quantity: 4, addons: [] }]);
+  assert.equal(patch(second, { action: 'open', guests: 1 }).status, 409);
+  assert.equal(patch(first, { action: 'guests', guests: 3 }).status, 200);
+  assert.equal(patch(first, { action: 'close' }).status, 409);
+  const sale = tableForSale(data, { tableId: first.id, tableVersion: first.version, items: first.order });
+  assert.equal(sale.table, first);
+  releaseTable(sale.table);
+  assert.equal(patch(second, { action: 'open', guests: 1 }).status, 200);
+  assert.deepEqual(tableState(data).tables.map(table => table.position), [0, 5]);
+});
