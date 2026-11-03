@@ -7,14 +7,16 @@ function tableState(data) {
   const tables = activeTables(data);
   const used = new Set(tables.map(table => table.position).filter(Number.isSafeInteger));
   let next = 0;
-  return { restaurantEnabled: !!data.restaurantEnabled, tables: tables.map(table => {
+  const positioned = tables.map(table => {
     let position = table.position;
     if (position === undefined) {
       while (used.has(next)) next++;
       position = next++;
     }
     return { ...table, position };
-  }) };
+  });
+  const grid = data.tableGrid || { columns: 4, rows: Math.max(4, ...positioned.map(table => Math.floor(table.position / 4) + 1)) };
+  return { restaurantEnabled: !!data.restaurantEnabled, tables: positioned, tableGrid: grid };
 }
 const validDetails = input => input && typeof input.name === 'string' && input.name.trim().length > 0 && input.name.trim().length <= 40 && Number.isSafeInteger(input.seats) && input.seats >= 1 && input.seats <= 100;
 const validItems = items => Array.isArray(items) && items.length <= 100 && items.every(item => item && Number.isSafeInteger(item.id) && Number.isSafeInteger(item.quantity) && item.quantity >= 1 && item.quantity <= 10000 && Array.isArray(item.addons) && item.addons.length <= 20 && item.addons.every(index => Number.isSafeInteger(index) && index >= 0) && new Set(item.addons).size === item.addons.length);
@@ -29,20 +31,41 @@ function tableMutation(data, route, method, input) {
   if (!data.restaurantEnabled) return fail(409, 'Enable dine-in tables in Settings first');
   data.tables ||= [];
   const tables = activeTables(data);
+  const floor = tableState(data);
+  const { columns, rows } = floor.tableGrid;
+  const slots = columns * rows;
+  if (route === 'tables/grid' && method === 'PUT') {
+    const { columns: width, rows: height } = input || {};
+    if (!Number.isInteger(width) || width < 1 || width > 12 || !Number.isInteger(height) || height < 1 || height > 50) {
+      return fail(400, 'Choose 1–12 columns and 1–50 rows');
+    }
+    const positions = new Map();
+    for (const table of floor.tables) {
+      const row = Math.floor(table.position / columns);
+      const column = table.position % columns;
+      if (row >= height || column >= width) return fail(409, 'Move tables inside the new grid before resizing');
+      positions.set(table.id, row * width + column);
+    }
+    for (const table of tables) table.position = positions.get(table.id);
+    data.tableGrid = { columns: width, rows: height };
+    return { status: 200, value: data.tableGrid, save: true };
+  }
   const positionError = (position, id) => {
+    if (input.gridColumns !== undefined && input.gridColumns !== columns) return fail(409, 'The grid changed. Refresh and try again.');
     if (position === undefined) return null;
-    if (!Number.isSafeInteger(position) || position < 0 || position >= 200) return fail(400, 'Choose a valid floor position');
-    if (tableState(data).tables.some(table => table.id !== id && table.position === position)) return fail(409, 'That floor position is already in use');
+    if (!Number.isSafeInteger(position) || position < 0 || position >= slots) return fail(400, 'Choose a valid floor position');
+    if (floor.tables.some(table => table.id !== id && table.position === position)) return fail(409, 'That floor position is already in use');
     return null;
   };
   const savePositions = () => {
-    const positions = new Map(tableState(data).tables.map(table => [table.id, table.position]));
+    const positions = new Map(floor.tables.map(table => [table.id, table.position]));
     for (const table of tables) table.position = positions.get(table.id);
   };
   const nameTaken = (name, id) => data.tables.some(table => table.active !== false && table.id !== id && table.name.toLowerCase() === name.trim().toLowerCase());
   if (route === 'tables' && method === 'POST') {
     if (!validDetails(input)) return fail(400, 'Enter a table name and 1–100 seats');
-    if (tableState(data).tables.length >= 100) return fail(400, 'A register can have up to 100 tables');
+    if (tables.length >= slots) return fail(409, 'The grid is full. Enlarge it to add more tables');
+    if (tables.length >= 100) return fail(400, 'A register can have up to 100 tables');
     if (nameTaken(input.name)) return fail(409, 'Table name already exists');
     const table = { id: Math.max(0, ...data.tables.map(table => table.id)) + 1, name: input.name.trim(), seats: input.seats, guests: 0, openedAt: null, order: [], version: 1, active: true };
     if (input.rotation !== undefined && input.rotation !== 0 && input.rotation !== 90) return fail(400, 'Choose a valid table rotation');
@@ -53,7 +76,7 @@ function tableMutation(data, route, method, input) {
     table.position = input.position ?? table.position;
     if (table.position === undefined) {
       const used = new Set(tables.map(table => table.position));
-      table.position = Array.from({ length: 200 }, (_, index) => index).find(position => !used.has(position));
+      table.position = Array.from({ length: slots }, (_, index) => index).find(position => !used.has(position));
     }
     data.tables.push(table);
     return { status: 201, value: table, save: true };

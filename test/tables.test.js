@@ -4,7 +4,7 @@ const { tableState, tableMutation, tableForSale, releaseTable, productInOpenOrde
 
 test('tables protect occupied visits, saved orders, and concurrent edits', () => {
   const data = { products: [{ id: 1, active: true, addons: [{ name: 'Cheese', price: 500 }] }] };
-  assert.deepEqual(tableState(data), { restaurantEnabled: false, tables: [] });
+  assert.deepEqual(tableState(data), { restaurantEnabled: false, tables: [], tableGrid: { columns: 4, rows: 4 } });
   assert.equal(tableMutation(data, 'tables', 'POST', { name: '1', seats: 4 }).status, 409);
   assert.equal(tableMutation(data, 'restaurant', 'PUT', { enabled: true }).status, 200);
   assert.equal(tableMutation(data, 'tables', 'POST', { name: '1', seats: 0 }).status, 400);
@@ -87,4 +87,14 @@ test('combined tables share one order and release together without changing the 
   releaseTable(sale.table);
   assert.equal(patch(second, { action: 'open', guests: 1 }).status, 200);
   assert.deepEqual(tableState(data).tables.map(table => table.position), [0, 5]);
+});
+
+test('resizing the floor preserves table coordinates and rejects a shrink that would hide a table', () => {
+  const data = { restaurantEnabled: true };
+  const table = tableMutation(data, 'tables', 'POST', { name: 'A', seats: 4, position: 7 }).value;
+  assert.equal(tableMutation(data, 'tables/grid', 'PUT', { columns: 6, rows: 5 }).status, 200);
+  assert.equal(tableState(data).tables[0].position, 9);
+  assert.equal(tableMutation(data, 'tables/grid', 'PUT', { columns: 3, rows: 4 }).status, 409);
+  assert.deepEqual(tableState(data).tableGrid, { columns: 6, rows: 5 });
+  assert.equal(table.position, 9);
 });

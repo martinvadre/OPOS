@@ -167,7 +167,7 @@ module.exports = async function handler(req, res) {
       if (!/^(0\d{9}|\d{13})$/.test(recipient)) return send(res, 503, { error: 'PromptPay recipient not configured' });
       return send(res, 200, { qr: await QRCode.toDataURL(promptpayPayload(recipient, { amount: amount / 100 }), { width: 280, margin: 2 }) });
     }
-    if ((route === 'restaurant' && req.method === 'PUT') || ((route === 'tables' || /^tables\/\d+$/.test(route)) && ['POST', 'PATCH', 'DELETE'].includes(req.method))) {
+    if (((route === 'restaurant' || route === 'tables/grid') && req.method === 'PUT') || ((route === 'tables' || /^tables\/\d+$/.test(route)) && ['POST', 'PATCH', 'DELETE'].includes(req.method))) {
       const input = await body(req);
       const result = await mutate(accountId, data => tableMutation(data, route, req.method, input));
       return send(res, result.status, result.value);

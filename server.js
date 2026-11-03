@@ -116,7 +116,7 @@ async function handler(req, res) {
       return send(res, 200, { qr });
     }
     const tableRoute = url.pathname.slice('/api/'.length);
-    if ((tableRoute === 'restaurant' && req.method === 'PUT') || ((tableRoute === 'tables' || /^tables\/\d+$/.test(tableRoute)) && ['POST', 'PATCH', 'DELETE'].includes(req.method))) {
+    if (((tableRoute === 'restaurant' || tableRoute === 'tables/grid') && req.method === 'PUT') || ((tableRoute === 'tables' || /^tables\/\d+$/.test(tableRoute)) && ['POST', 'PATCH', 'DELETE'].includes(req.method))) {
       const input = await body(req);
       const next = structuredClone(data);
       const result = tableMutation(next, tableRoute, req.method, input);

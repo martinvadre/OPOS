@@ -20,7 +20,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Sidebar, SidebarContent, SidebarFooter, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { TablesPage, type DiningTable } from '@/tables'
+import { TablesPage, type DiningTable, type TableGrid } from '@/tables'
 import { MenuImport } from '@/menu-import'
 import { CategorySelector } from '@/category-selector'
 import { applyLanguage, type Language } from '@/language'
@@ -113,6 +113,7 @@ export function App() {
   const [promotions, setPromotions] = useState<Promotion[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
   const [restaurantEnabled, setRestaurantEnabled] = useState(false)
+  const [tableGrid, setTableGrid] = useState<TableGrid>({ columns: 4, rows: 4 })
   const [tables, setTables] = useState<DiningTable[]>([])
   const [activeTableId, setActiveTableId] = useState<number | null>(null)
   const [activeTableVersion, setActiveTableVersion] = useState<number | null>(null)
@@ -196,13 +197,14 @@ export function App() {
   }, [authenticated])
 
   async function refresh() {
-    const state = await api<{ accountId?: number; promptpayEnabled?: boolean; promptpayConfigured?: boolean; manualPayments?: string[]; restaurantEnabled?: boolean; tables?: DiningTable[]; products: Product[]; sales: Sale[]; promotions: Promotion[] }>('state')
+    const state = await api<{ accountId?: number; promptpayEnabled?: boolean; promptpayConfigured?: boolean; manualPayments?: string[]; restaurantEnabled?: boolean; tables?: DiningTable[]; tableGrid?: TableGrid; products: Product[]; sales: Sale[]; promotions: Promotion[] }>('state')
     const nextAccountId = state.accountId ?? 1
     setProducts(state.products)
     setSales(state.sales)
     setPromotions(state.promotions)
     setRestaurantEnabled(!!state.restaurantEnabled)
     setTables(state.tables || [])
+    setTableGrid(state.tableGrid || { columns: 4, rows: 4 })
     if (tab === 'tables' && !state.restaurantEnabled) setTab('pos')
     setPromptpayEnabled(!!state.promptpayEnabled)
     setPromptpayConfigured(!!state.promptpayConfigured)
@@ -615,7 +617,7 @@ export function App() {
           {notification}
           <div className={tab === 'pos' ? 'grid items-start gap-inset lg:grid-cols-[minmax(0,1fr)_255pt] xl:grid-cols-[minmax(0,1fr)_270pt]' : 'block'}>
             <section className="min-w-0">
-              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} request={api} refresh={refresh} openOrder={openTableOrder} transferOrder={transferTableOrder} onGuestUpdated={(table, previousVersion) => { if (activeTableId === table.id && activeTableVersion === previousVersion) setActiveTableVersion(table.version) }} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
+              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} grid={tableGrid} request={api} refresh={refresh} openOrder={openTableOrder} transferOrder={transferTableOrder} onGuestUpdated={(table, previousVersion) => { if (activeTableId === table.id && activeTableVersion === previousVersion) setActiveTableVersion(table.version) }} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
               {tab === 'dashboard' && <>
                 <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center"><PageHeading title="Promotions" /></div>
                 <Card className="mb-inset gap-inset border-0 bg-background p-inset shadow-sm">

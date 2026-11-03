@@ -8,10 +8,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+export type TableGrid = { columns: number; rows: number }
 export type TableItem = { id: number; quantity: number; addons: number[] }
 export type DiningTable = { id: number; name: string; seats: number; guests: number; openedAt: string | null; order: TableItem[]; version: number; position: number; rotation?: 0 | 90; combinedTableIds?: number[] }
 type Props = {
   tables: DiningTable[]
+  grid: TableGrid
   request: <T>(route: string, method?: string, payload?: unknown) => Promise<T>
   refresh: () => Promise<void>
   openOrder: (table: DiningTable) => void
@@ -50,11 +52,17 @@ function TableShape({ name, seats, rotation, occupied }: { name: string; seats: 
   </span>
 }
 
-export function TablesPage({ tables, request, refresh, openOrder, transferOrder, onGuestUpdated, itemName, lineTotal, onError }: Props) {
+export function TablesPage({ tables, grid, request, refresh, openOrder, transferOrder, onGuestUpdated, itemName, lineTotal, onError }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dialog, setDialog] = useState(false)
   const [editing, setEditing] = useState<DiningTable | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [editingGrid, setEditingGrid] = useState(false)
+  const [gridColumns, setGridColumns] = useState('4')
+  const [gridRows, setGridRows] = useState('4')
+  const { columns, rows } = grid
+  const slots = columns * rows
+  const canAdd = tables.length < Math.min(slots, 100)
   const [row, setRow] = useState('1')
   const [column, setColumn] = useState('1')
   const [rotation, setRotation] = useState<0 | 90>(0)
@@ -81,14 +89,14 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
   const validGuests = Number.isInteger(Number(guests)) && Number(guests) >= 1 && Number(guests) <= selectedCapacity
 
   function editTable(table: DiningTable | null, slot?: number) {
-    const position = table?.position ?? slot ?? Array.from({ length: 200 }, (_, index) => index).find(index => !tables.some(existing => existing.position === index)) ?? 0
+    const position = table?.position ?? slot ?? Array.from({ length: slots }, (_, index) => index).find(index => !tables.some(existing => existing.position === index)) ?? 0
     setDialogError('')
     setEditing(table)
     setName(table?.name || `Table ${Math.max(0, ...tables.map(table => table.id)) + 1}`)
     setSeats(String(table?.seats || 4))
     setRotation(table?.rotation ?? 0)
-    setRow(String(Math.floor(position / 4) + 1))
-    setColumn(String(position % 4 + 1))
+    setRow(String(Math.floor(position / columns) + 1))
+    setColumn(String(position % columns + 1))
     setShowForm(true)
   }
   function selectTable(table: DiningTable) {
@@ -107,10 +115,25 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
     setBusy(true)
     setDialogError('')
     try {
-      await request<DiningTable>(editing ? `tables/${editing.id}` : 'tables', editing ? 'PATCH' : 'POST', { name: name.trim(), seats: Number(seats), rotation, position: (Number(row) - 1) * 4 + Number(column) - 1, ...(editing ? { action: 'details', version: editing.version } : {}) })
+      await request<DiningTable>(editing ? `tables/${editing.id}` : 'tables', editing ? 'PATCH' : 'POST', { name: name.trim(), seats: Number(seats), rotation, gridColumns: columns, position: (Number(row) - 1) * columns + Number(column) - 1, ...(editing ? { action: 'details', version: editing.version } : {}) })
       setShowForm(false); await refresh()
     } catch (cause) { setDialogError(cause instanceof Error ? cause.message : 'Could not save table') } finally { setBusy(false) }
   }
+  async function saveGrid(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setDialogError('')
+    try {
+      await request('tables/grid', 'PUT', { columns: Number(gridColumns), rows: Number(gridRows) })
+      await refresh()
+      setEditingGrid(false)
+    } catch (cause) {
+      setDialogError(cause instanceof Error ? cause.message : 'Could not save grid')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function visit(action: 'open' | 'close' | 'guests') {
     if (!selected) return
     setBusy(true)
@@ -144,14 +167,13 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
 
   function renderFloor(setup: boolean) {
     const byPosition = new Map(tables.map(table => [table.position, table]))
-    const slots = Math.ceil(Math.max(setup ? 8 : 4, ...tables.map(table => table.position + 1)) / 4) * 4
     return <div className="max-h-[60dvh] overflow-auto p-1">
-      <div className="grid min-w-[34rem] grid-cols-4 gap-2">
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(8.125rem, 1fr))`, minWidth: `calc(${columns * 8.125}rem + ${(columns - 1) * 0.5}rem)` }}>
         {Array.from({ length: slots }, (_, position) => {
           const table = byPosition.get(position)
           if (!table) {
-            return setup && tables.length < 100
-              ? <button key={position} type="button" disabled={busy} aria-label={`Add table at row ${Math.floor(position / 4) + 1}, column ${position % 4 + 1}`}
+            return setup && canAdd
+              ? <button key={position} type="button" disabled={busy} aria-label={`Add table at row ${Math.floor(position / columns) + 1}, column ${position % columns + 1}`}
                   className="grid min-h-40 place-items-center rounded-xl border border-dashed border-input text-muted-foreground hover:bg-muted"
                   onClick={() => editTable(null, position)}><Plus className="size-4" /></button>
               : <span key={position} aria-hidden="true" className="min-h-40" />
@@ -176,7 +198,7 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
   }
 
   return <>
-    <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center justify-between gap-3"><h1 className="text-[21pt] font-bold leading-tight tracking-tight">Tables</h1><div className="flex items-center gap-2"><Button variant="outline" size="icon" className="rounded-full border-input" aria-label="Refresh tables" disabled={busy} onClick={async () => { setBusy(true); try { await refresh() } catch (cause) { onError(cause) } finally { setBusy(false) } }}><RefreshCw /></Button><Button className="h-[calc(var(--radius-card)*2)] rounded-full has-[>svg]:px-inset" onClick={() => { setDialogError(''); setShowForm(false); setDialog(true) }}><SquarePen />Table setup</Button></div></div>
+    <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center justify-between gap-3"><h1 className="text-[21pt] font-bold leading-tight tracking-tight">Tables</h1><div className="flex items-center gap-2"><Button variant="outline" size="icon" className="rounded-full border-input" aria-label="Refresh tables" disabled={busy} onClick={async () => { setBusy(true); try { await refresh() } catch (cause) { onError(cause) } finally { setBusy(false) } }}><RefreshCw /></Button><Button className="h-[calc(var(--radius-card)*2)] rounded-full has-[>svg]:px-inset" onClick={() => { setDialogError(''); setShowForm(false); setEditingGrid(false); setDialog(true) }}><SquarePen />Table setup</Button></div></div>
     <div className="mb-inset flex items-center gap-4 text-sm"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-slate-400" />Available {tables.length - occupied}</span><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-orange-500" />Occupied {occupied}</span></div>
     <div className="grid items-start gap-inset xl:grid-cols-[minmax(0,1fr)_255pt]">
       <Card className="gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="px-0">{tables.length ? renderFloor(false) : <div className="flex min-h-48 flex-col items-center justify-center gap-3"><DiningTableIcon className="size-8 text-primary" /><h2 className="font-semibold">No tables yet</h2></div>}</CardContent></Card>
@@ -189,17 +211,26 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
       </> : <CardContent className="flex min-h-48 flex-col items-center justify-center gap-3 px-0"><DiningTableIcon className="size-8 text-primary" /><h2 className="font-semibold">Select a table</h2></CardContent>}</Card>
     </div>
     <Dialog open={dialog} onOpenChange={setDialog}>
-      <DialogContent className="max-h-[85dvh] grid-cols-[minmax(0,1fr)] overflow-y-auto border-0 shadow-xl sm:max-w-2xl">
+      <DialogContent aria-describedby={undefined} className="max-h-[85dvh] grid-cols-[minmax(0,1fr)] overflow-y-auto border-0 shadow-xl sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Table setup</DialogTitle>
-          <DialogDescription>Tap a table to edit it, or tap an empty square to add one.</DialogDescription>
         </DialogHeader>
-        {showForm ? <form onSubmit={save} className="space-y-inset">
+        {editingGrid ? <form onSubmit={saveGrid} className="space-y-inset">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-2"><Label htmlFor="grid-columns">Columns</Label><Input id="grid-columns" type="number" min="1" max="12" value={gridColumns} onChange={event => setGridColumns(event.target.value)} required /></div>
+            <div className="space-y-2"><Label htmlFor="grid-rows">Rows</Label><Input id="grid-rows" type="number" min="1" max="50" value={gridRows} onChange={event => setGridRows(event.target.value)} required /></div>
+          </div>
+          {dialogError && <p role="alert" className="text-sm text-destructive">{dialogError}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setEditingGrid(false)}>Cancel</Button>
+            <Button disabled={busy}>Save</Button>
+          </DialogFooter>
+        </form> : showForm ? <form onSubmit={save} className="space-y-inset">
           <div className="space-y-2"><Label htmlFor="table-name">Name</Label><Input id="table-name" value={name} onChange={event => setName(event.target.value)} required maxLength={40} /></div>
           <div className="grid grid-cols-3 gap-2">
             <div className="space-y-2"><Label htmlFor="table-seats">Chairs</Label><Input id="table-seats" type="number" min="1" max="100" value={seats} onChange={event => setSeats(event.target.value)} required /></div>
-            <div className="space-y-2"><Label htmlFor="table-row">Row</Label><Input id="table-row" type="number" min="1" max="50" value={row} onChange={event => setRow(event.target.value)} required /></div>
-            <div className="space-y-2"><Label htmlFor="table-column">Column</Label><Input id="table-column" type="number" min="1" max="4" value={column} onChange={event => setColumn(event.target.value)} required /></div>
+            <div className="space-y-2"><Label htmlFor="table-row">Row</Label><Input id="table-row" type="number" min="1" max={rows} value={row} onChange={event => setRow(event.target.value)} required /></div>
+            <div className="space-y-2"><Label htmlFor="table-column">Column</Label><Input id="table-column" type="number" min="1" max={columns} value={column} onChange={event => setColumn(event.target.value)} required /></div>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
             <TableShape name={name} seats={Math.min(100, Math.max(1, Math.floor(Number(seats) || 4)))} rotation={rotation} occupied={false} />
@@ -212,8 +243,16 @@ export function TablesPage({ tables, request, refresh, openOrder, transferOrder,
             <Button disabled={busy}>{editing ? 'Save' : 'Add table'}</Button>
           </DialogFooter>
         </form> : <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => {
+              setGridColumns(String(columns))
+              setGridRows(String(rows))
+              setDialogError('')
+              setEditingGrid(true)
+            }}><SquarePen />Edit grid <span className="text-muted-foreground">{columns} × {rows}</span></Button>
+            <Button disabled={busy || !canAdd} onClick={() => editTable(null)}><Plus />Add table</Button>
+          </div>
           {renderFloor(true)}
-          <Button disabled={busy || tables.length >= 100} onClick={() => editTable(null)}><Plus />Add table</Button>
         </div>}
       </DialogContent>
     </Dialog>
