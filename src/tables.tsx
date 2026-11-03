@@ -28,12 +28,16 @@ function TableShape({ name, seats, rotation, occupied }: { name: string; seats: 
   const long = seats > 4
   const shape = !long ? 'size-24' : vertical ? 'h-30 w-24' : 'h-24 w-30'
   function chairs(count: number) {
-    const tracks = `repeat(${Math.max(1, Math.min(count, 10))}, 6px)`
-    return <span aria-hidden="true" className="grid gap-0.5" style={vertical
+    const dense = count > 5
+    const tracks = `repeat(${Math.max(1, Math.min(count, dense ? 13 : 5))}, ${dense ? 7 : 20}px)`
+    const bar = dense
+      ? vertical ? 'h-[7px] w-0.5' : 'h-0.5 w-[7px]'
+      : vertical ? 'h-5 w-1.5' : 'h-1.5 w-5'
+    return <span aria-hidden="true" className={dense ? "grid gap-px" : "grid gap-0.5"} style={vertical
       ? { gridTemplateRows: tracks, gridAutoFlow: 'column' }
       : { gridTemplateColumns: tracks }}>
       {Array.from({ length: count }, (_, index) => (
-        <span key={index} className={`size-1.5 rounded-sm ${occupied ? 'bg-orange-400' : 'bg-slate-400'}`} />
+        <span key={index} className={`${bar} rounded-full ${occupied ? 'bg-orange-400' : 'bg-slate-400'}`} />
       ))}
     </span>
   }
