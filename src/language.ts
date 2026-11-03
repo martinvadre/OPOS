@@ -82,6 +82,8 @@ export const thai: Record<string, string> = {
   'Restaurant': 'ร้านอาหาร', 'Restaurant with dine-in tables': 'ร้านอาหารที่มีโต๊ะนั่ง',
   'Sign out': 'ออกจากระบบ',
   'Available': 'ว่าง', 'Occupied': 'ไม่ว่าง', 'Add table': 'เพิ่มโต๊ะ', 'No tables yet': 'ยังไม่มีโต๊ะ',
+  'Table size': 'ขนาดโต๊ะ', 'Square': 'สี่เหลี่ยมจัตุรัส', 'Rectangle': 'สี่เหลี่ยมผืนผ้า', 'Joined squares': 'โต๊ะจัตุรัสต่อกัน',
+  'Chair layout': 'การจัดเก้าอี้', 'Top': 'ด้านบน', 'Right': 'ด้านขวา', 'Bottom': 'ด้านล่าง', 'Left': 'ด้านซ้าย',
   'Rotate table': 'หมุนโต๊ะ',
   'Edit grid': 'แก้ไขขนาดผัง', 'Columns': 'คอลัมน์', 'Rows': 'แถว',
   'Move tables inside the new grid before resizing': 'ย้ายโต๊ะให้อยู่ในขนาดผังใหม่ก่อนปรับขนาด',

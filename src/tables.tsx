@@ -10,7 +10,11 @@ import { Label } from '@/components/ui/label'
 
 export type TableGrid = { columns: number; rows: number }
 export type TableItem = { id: number; quantity: number; addons: number[] }
-export type DiningTable = { id: number; name: string; seats: number; guests: number; openedAt: string | null; order: TableItem[]; version: number; position: number; rotation?: 0 | 90; combinedTableIds?: number[] }
+const tableSizes = ['M', '2M', 'L'] as const
+type TableSize = typeof tableSizes[number]
+const chairSides = ['Top', 'Right', 'Bottom', 'Left'] as const
+const defaultChairs: Record<TableSize, number[]> = { M: [2, 0, 2, 0], '2M': [4, 0, 4, 0], L: [3, 0, 3, 0] }
+export type DiningTable = { id: number; name: string; seats: number; guests: number; openedAt: string | null; order: TableItem[]; version: number; position: number; rotation?: 0 | 90; size?: TableSize; chairLayout?: number[]; combinedTableIds?: number[] }
 type Props = {
   tables: DiningTable[]
   grid: TableGrid
@@ -25,17 +29,27 @@ type Props = {
 }
 const money = (amount: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount / 100)
 
-function TableShape({ name, seats, rotation, occupied }: { name: string; seats: number; rotation?: 0 | 90; occupied: boolean }) {
+function TableShape({ name, seats, size, chairLayout, rotation, occupied }: Pick<DiningTable, 'name' | 'seats' | 'size' | 'chairLayout' | 'rotation'> & { occupied: boolean }) {
   const vertical = rotation === 90
-  const long = seats > 4
-  const shape = !long ? 'size-24' : vertical ? 'h-30 w-24' : 'h-24 w-30'
-  function chairs(count: number) {
-    const dense = count > 5
-    const tracks = `repeat(${Math.max(1, Math.min(count, dense ? 13 : 5))}, ${dense ? 7 : 20}px)`
+  const layout = chairLayout || [Math.ceil(seats / 2), 0, Math.floor(seats / 2), 0]
+  const [top, right, bottom, left] = vertical ? [layout[3], layout[0], layout[1], layout[2]] : layout
+  const actualSize = size || (seats > 4 ? 'L' : 'M')
+  const shape = {
+    M: 'size-24',
+    '2M': vertical ? 'h-48 w-24' : 'h-24 w-48',
+    L: vertical ? 'h-30 w-24' : 'h-24 w-30',
+  }[actualSize]
+
+  function chairs(count: number, side: 'top' | 'right' | 'bottom' | 'left') {
+    if (!count) return null
+    const sideways = side === 'left' || side === 'right'
+    const dense = count > 4
+    const tracks = `repeat(${Math.min(count, dense ? 12 : 4)}, ${dense ? 6 : 18}px)`
     const bar = dense
-      ? vertical ? 'h-[7px] w-0.5' : 'h-0.5 w-[7px]'
-      : vertical ? 'h-5 w-1.5' : 'h-1.5 w-5'
-    return <span aria-hidden="true" className={dense ? "grid gap-px" : "grid gap-0.5"} style={vertical
+      ? sideways ? 'h-1.5 w-0.5' : 'h-0.5 w-1.5'
+      : sideways ? 'h-[18px] w-1.5' : 'h-1.5 w-[18px]'
+    const position = { top: 'col-start-2 row-start-1', right: 'col-start-3 row-start-2', bottom: 'col-start-2 row-start-3', left: 'col-start-1 row-start-2' }[side]
+    return <span aria-hidden="true" className={`grid place-self-center gap-px ${position}`} style={sideways
       ? { gridTemplateRows: tracks, gridAutoFlow: 'column' }
       : { gridTemplateColumns: tracks }}>
       {Array.from({ length: count }, (_, index) => (
@@ -43,12 +57,16 @@ function TableShape({ name, seats, rotation, occupied }: { name: string; seats: 
       ))}
     </span>
   }
-  return <span className={`flex items-center justify-center gap-1 ${vertical ? 'flex-row' : 'flex-col'}`}>
-    {chairs(Math.ceil(seats / 2))}
-    <span className={`${shape} grid place-items-center rounded-lg border ${occupied ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-      <span className="line-clamp-2 max-w-full wrap-anywhere px-2 text-center text-sm font-semibold" translate="no" title={name}>{name}</span>
+
+  return <span className="grid grid-cols-[auto_auto_auto] grid-rows-[auto_auto_auto] gap-1">
+    {chairs(top, 'top')}
+    {chairs(right, 'right')}
+    {chairs(bottom, 'bottom')}
+    {chairs(left, 'left')}
+    <span className={`${shape} relative col-start-2 row-start-2 grid place-items-center rounded-lg border ${occupied ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+      {actualSize === '2M' && <span aria-hidden="true" className={`absolute border-current opacity-25 ${vertical ? 'inset-x-0 top-1/2 border-t' : 'inset-y-0 left-1/2 border-l'}`} />}
+      <span className="relative line-clamp-2 max-w-full wrap-anywhere px-2 text-center text-sm font-semibold" translate="no" title={name}>{name}</span>
     </span>
-    {chairs(Math.floor(seats / 2))}
   </span>
 }
 
@@ -67,7 +85,9 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
   const [column, setColumn] = useState('1')
   const [rotation, setRotation] = useState<0 | 90>(0)
   const [name, setName] = useState('')
-  const [seats, setSeats] = useState('4')
+  const [size, setSize] = useState<TableSize>('M')
+  const [chairLayout, setChairLayout] = useState<number[]>(defaultChairs.M)
+  const seats = chairLayout.reduce((sum, count) => sum + count, 0)
   const [guests, setGuests] = useState('1')
   const [removing, setRemoving] = useState<DiningTable | null>(null)
   const [busy, setBusy] = useState(false)
@@ -93,7 +113,8 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
     setDialogError('')
     setEditing(table)
     setName(table?.name || `Table ${Math.max(0, ...tables.map(table => table.id)) + 1}`)
-    setSeats(String(table?.seats || 4))
+    setSize(table?.size || (table && table.seats > 4 ? 'L' : 'M'))
+    setChairLayout(table?.chairLayout || (table ? [Math.ceil(table.seats / 2), 0, Math.floor(table.seats / 2), 0] : defaultChairs.M))
     setRotation(table?.rotation ?? 0)
     setRow(String(Math.floor(position / columns) + 1))
     setColumn(String(position % columns + 1))
@@ -115,7 +136,7 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
     setBusy(true)
     setDialogError('')
     try {
-      await request<DiningTable>(editing ? `tables/${editing.id}` : 'tables', editing ? 'PATCH' : 'POST', { name: name.trim(), seats: Number(seats), rotation, gridColumns: columns, position: (Number(row) - 1) * columns + Number(column) - 1, ...(editing ? { action: 'details', version: editing.version } : {}) })
+      await request<DiningTable>(editing ? `tables/${editing.id}` : 'tables', editing ? 'PATCH' : 'POST', { name: name.trim(), seats, size, chairLayout, rotation, gridColumns: columns, position: (Number(row) - 1) * columns + Number(column) - 1, ...(editing ? { action: 'details', version: editing.version } : {}) })
       setShowForm(false); await refresh()
     } catch (cause) { setDialogError(cause instanceof Error ? cause.message : 'Could not save table') } finally { setBusy(false) }
   }
@@ -167,8 +188,9 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
 
   function renderFloor(setup: boolean) {
     const byPosition = new Map(tables.map(table => [table.position, table]))
+    const cellWidth = tables.some(table => table.size === '2M') ? 16.5 : 10
     return <div className="max-h-[60dvh] overflow-auto p-1">
-      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(8.125rem, 1fr))`, minWidth: `calc(${columns * 8.125}rem + ${(columns - 1) * 0.5}rem)` }}>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(${cellWidth}rem, 1fr))`, minWidth: `calc(${columns * cellWidth}rem + ${(columns - 1) * 0.5}rem)` }}>
         {Array.from({ length: slots }, (_, position) => {
           const table = byPosition.get(position)
           if (!table) {
@@ -189,7 +211,7 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
             disabled={setup && (busy || combined)}
             onClick={() => setup ? editTable(table) : selectTable(table)}
             className={`flex min-h-40 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border p-1 text-center disabled:opacity-60 ${selected ? 'border-primary bg-primary/5' : setup ? 'border-border hover:bg-muted' : 'border-transparent hover:bg-muted'}`}>
-            <TableShape name={table.name} seats={table.seats} rotation={table.rotation} occupied={occupied} />
+            <TableShape name={table.name} seats={table.seats} size={table.size} chairLayout={table.chairLayout} rotation={table.rotation} occupied={occupied} />
             <span className="text-xs text-muted-foreground">{status}</span>
           </button>
         })}
@@ -227,20 +249,44 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
           </DialogFooter>
         </form> : showForm ? <form onSubmit={save} className="space-y-inset">
           <div className="space-y-2"><Label htmlFor="table-name">Name</Label><Input id="table-name" value={name} onChange={event => setName(event.target.value)} required maxLength={40} /></div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="space-y-2"><Label htmlFor="table-seats">Chairs</Label><Input id="table-seats" type="number" min="1" max="100" value={seats} onChange={event => setSeats(event.target.value)} required /></div>
+          <div className="grid grid-cols-2 gap-2">
             <div className="space-y-2"><Label htmlFor="table-row">Row</Label><Input id="table-row" type="number" min="1" max={rows} value={row} onChange={event => setRow(event.target.value)} required /></div>
             <div className="space-y-2"><Label htmlFor="table-column">Column</Label><Input id="table-column" type="number" min="1" max={columns} value={column} onChange={event => setColumn(event.target.value)} required /></div>
           </div>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Table size</legend>
+            <div className="flex flex-wrap gap-2">
+              {tableSizes.map(option => <Button key={option} type="button" variant={option === size ? 'default' : 'outline'} aria-pressed={option === size}
+                onClick={() => { if (option !== size) { setSize(option); setChairLayout(defaultChairs[option]) } }}>
+                {option === '2M' ? '2 × M' : option} <span>{option === 'M' ? 'Square' : option === 'L' ? 'Rectangle' : 'Joined squares'}</span>
+              </Button>)}
+            </div>
+          </fieldset>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Chair layout</legend>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {chairSides.map((side, index) => {
+                const slot = rotation === 90 ? (index + 3) % 4 : index
+                return <div key={side} className="space-y-2">
+                <Label htmlFor={`chairs-${index}`}>{side}</Label>
+                <Input id={`chairs-${index}`} type="number" min="0" max="100" required value={chairLayout[slot]} onChange={event => {
+                  const count = Number(event.target.value)
+                  setChairLayout(layout => layout.map((value, current) => current === slot ? count : value))
+                }} />
+                </div>
+              })}
+            </div>
+            <p className="text-sm text-muted-foreground">{seats} <span>Chairs</span></p>
+          </fieldset>
           <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
-            <TableShape name={name} seats={Math.min(100, Math.max(1, Math.floor(Number(seats) || 4)))} rotation={rotation} occupied={false} />
+            <TableShape name={name} seats={seats} size={size} chairLayout={chairLayout.map(count => Math.min(100, Math.max(0, Math.floor(count))))} rotation={rotation} occupied={false} />
             <Button type="button" variant="outline" onClick={() => setRotation(value => value === 0 ? 90 : 0)}><RotateCw />Rotate table</Button>
           </div>
           {dialogError && <p role="alert" className="text-sm text-destructive">{dialogError}</p>}
           <DialogFooter>
             {editing && <Button type="button" variant="ghost" className="mr-auto text-destructive" disabled={busy || !!anchorFor(editing).openedAt} onClick={() => setRemoving(editing)}><Trash2 />Remove</Button>}
             <Button type="button" variant="outline" disabled={busy} onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button disabled={busy}>{editing ? 'Save' : 'Add table'}</Button>
+            <Button disabled={busy || seats < 1 || seats > 100}>{editing ? 'Save' : 'Add table'}</Button>
           </DialogFooter>
         </form> : <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">

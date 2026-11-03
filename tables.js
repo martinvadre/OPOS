@@ -19,6 +19,11 @@ function tableState(data) {
   return { restaurantEnabled: !!data.restaurantEnabled, tables: positioned, tableGrid: grid };
 }
 const validDetails = input => input && typeof input.name === 'string' && input.name.trim().length > 0 && input.name.trim().length <= 40 && Number.isSafeInteger(input.seats) && input.seats >= 1 && input.seats <= 100;
+const validChairLayout = input => input.chairLayout === undefined || (
+  Array.isArray(input.chairLayout) && input.chairLayout.length === 4 &&
+  input.chairLayout.every(count => Number.isSafeInteger(count) && count >= 0 && count <= 100) &&
+  input.chairLayout.reduce((sum, count) => sum + count, 0) === input.seats
+);
 const validItems = items => Array.isArray(items) && items.length <= 100 && items.every(item => item && Number.isSafeInteger(item.id) && Number.isSafeInteger(item.quantity) && item.quantity >= 1 && item.quantity <= 10000 && Array.isArray(item.addons) && item.addons.length <= 20 && item.addons.every(index => Number.isSafeInteger(index) && index >= 0) && new Set(item.addons).size === item.addons.length);
 
 function tableMutation(data, route, method, input) {
@@ -68,11 +73,15 @@ function tableMutation(data, route, method, input) {
     if (tables.length >= 100) return fail(400, 'A register can have up to 100 tables');
     if (nameTaken(input.name)) return fail(409, 'Table name already exists');
     const table = { id: Math.max(0, ...data.tables.map(table => table.id)) + 1, name: input.name.trim(), seats: input.seats, guests: 0, openedAt: null, order: [], version: 1, active: true };
+    if (input.size !== undefined && !['M', '2M', 'L'].includes(input.size)) return fail(400, 'Choose a valid table size');
+    if (!validChairLayout(input)) return fail(400, 'Choose a valid chair layout');
     if (input.rotation !== undefined && input.rotation !== 0 && input.rotation !== 90) return fail(400, 'Choose a valid table rotation');
     const invalidPosition = positionError(input.position);
     if (invalidPosition) return invalidPosition;
     savePositions();
     if (input.rotation !== undefined) table.rotation = input.rotation;
+    if (input.size !== undefined) table.size = input.size;
+    if (input.chairLayout !== undefined) table.chairLayout = [...input.chairLayout];
     table.position = input.position ?? table.position;
     if (table.position === undefined) {
       const used = new Set(tables.map(table => table.position));
@@ -97,13 +106,18 @@ function tableMutation(data, route, method, input) {
     if (!validDetails(input)) return fail(400, 'Enter a table name and 1–100 seats');
     if (nameTaken(input.name, table.id)) return fail(409, 'Table name already exists');
     if (groupIds(table).length) return fail(409, 'Close the combined table before editing it');
+    if (input.size !== undefined && !['M', '2M', 'L'].includes(input.size)) return fail(400, 'Choose a valid table size');
+    if (!validChairLayout(input)) return fail(400, 'Choose a valid chair layout');
     if (input.rotation !== undefined && input.rotation !== 0 && input.rotation !== 90) return fail(400, 'Choose a valid table rotation');
     const invalidPosition = positionError(input.position, table.id);
     if (invalidPosition) return invalidPosition;
     if (input.seats < table.guests) return fail(409, 'Seats cannot be fewer than the current guest count');
     savePositions();
     if (input.rotation !== undefined) table.rotation = input.rotation;
+    if (input.size !== undefined) table.size = input.size;
+    if (input.chairLayout !== undefined) table.chairLayout = [...input.chairLayout];
     table.position = input.position ?? table.position;
+    if (input.chairLayout === undefined && table.seats !== input.seats) delete table.chairLayout;
     table.name = input.name.trim(); table.seats = input.seats;
   } else if (input.action === 'open') {
     if (table.openedAt) return fail(409, 'Table is already occupied');
