@@ -54,7 +54,7 @@ function TableShape({ name, seats, size, chairLayout, rotation, occupied }: Pick
       ? { gridTemplateRows: tracks, gridAutoFlow: 'column' }
       : { gridTemplateColumns: tracks }}>
       {Array.from({ length: count }, (_, index) => (
-        <span key={index} className={`${bar} rounded-full ${occupied ? 'bg-orange-400' : 'bg-slate-400'}`} />
+        <span key={index} className={`${bar} rounded-full ${occupied ? 'bg-primary/65' : 'bg-slate-400'}`} />
       ))}
     </span>
   }
@@ -64,7 +64,7 @@ function TableShape({ name, seats, size, chairLayout, rotation, occupied }: Pick
     {chairs(right, 'right')}
     {chairs(bottom, 'bottom')}
     {chairs(left, 'left')}
-    <span className={`${shape} relative col-start-2 row-start-2 grid place-items-center rounded-lg border ${occupied ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+    <span className={`${shape} relative col-start-2 row-start-2 grid place-items-center rounded-lg border ${occupied ? 'border-primary/35 bg-primary/10 text-primary' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
       {actualSize === '2M' && <span aria-hidden="true" className={`absolute border-current opacity-25 ${vertical ? 'inset-x-0 top-1/2 border-t' : 'inset-y-0 left-1/2 border-l'}`} />}
       <span className="relative line-clamp-2 max-w-full wrap-anywhere px-2 text-center text-sm font-semibold" translate="no" title={name}>{name}</span>
     </span>
@@ -221,8 +221,8 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, canOpenO
   }
 
   return <>
-    <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center justify-between gap-3"><h1 className="text-[21pt] font-bold leading-tight tracking-tight">Tables</h1><div className="flex items-center gap-2"><Button variant="outline" size="icon" className="rounded-full border-input" aria-label="Refresh tables" disabled={busy} onClick={async () => { setBusy(true); try { await refresh() } catch (cause) { onError(cause) } finally { setBusy(false) } }}><RefreshCw /></Button><Button className="h-[calc(var(--radius-card)*2)] rounded-full has-[>svg]:px-inset" onClick={() => { setDialogError(''); setShowForm(false); setEditingGrid(false); setDialog(true) }}><SquarePen />Table setup</Button></div></div>
-    <div className="mb-inset flex items-center gap-4 text-sm"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-slate-400" />Available {tables.length - occupied}</span><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-orange-500" />Occupied {occupied}</span></div>
+    <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center justify-between gap-3"><h1 className="text-[21pt] font-bold leading-tight tracking-tight">Tables</h1><div className="flex items-center gap-2"><Button variant="outline" size="icon" className="size-[calc(var(--radius-card)*2)] rounded-full border-input [&_svg]:size-5" aria-label="Refresh tables" disabled={busy} onClick={async () => { setBusy(true); try { await refresh() } catch (cause) { onError(cause) } finally { setBusy(false) } }}><RefreshCw /></Button><Button className="h-[calc(var(--radius-card)*2)] rounded-full has-[>svg]:px-inset" onClick={() => { setDialogError(''); setShowForm(false); setEditingGrid(false); setDialog(true) }}><SquarePen />Table setup</Button></div></div>
+    <div className="mb-inset flex items-center gap-4 text-sm"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-slate-400" />Available {tables.length - occupied}</span><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-primary" />Occupied {occupied}</span></div>
     <div className="grid items-start gap-inset xl:grid-cols-[minmax(0,1fr)_255pt]">
       <Card className="gap-0 border-0 bg-background p-inset shadow-sm"><CardContent className="px-0">{tables.length ? renderFloor(false) : <div className="flex min-h-48 flex-col items-center justify-center gap-3"><DiningTableIcon className="size-8 text-primary" /><h2 className="font-semibold">No tables yet</h2></div>}</CardContent></Card>
       <Card className="gap-inset border-0 bg-background p-inset shadow-sm">{selected ? <>

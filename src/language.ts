@@ -40,6 +40,7 @@ export const thai: Record<string, string> = {
   'Stock recipe': 'สูตรวัตถุดิบ', 'Add ingredient': 'เพิ่มวัตถุดิบ', 'Remove ingredient': 'ลบวัตถุดิบ',
   'Recipe cost': 'ต้นทุนต่อรายการ', 'Quantity per item': 'ปริมาณต่อรายการ',
   'On hand': 'คงเหลือ', 'Latest purchase': 'ซื้อล่าสุด', 'Restock': 'เติมสต็อก',
+  'Search stock': 'ค้นหาสต็อก', 'Search stock…': 'ค้นหาสต็อก…', 'No matching stock items': 'ไม่พบรายการสต็อกที่ตรงกัน',
   'Unit': 'หน่วย', 'Purchase quantity': 'ปริมาณที่ซื้อ', 'Purchase cost (฿)': 'ราคาซื้อ (฿)',
   'Add ingredients and packaging on the Stock page first.': 'เพิ่มวัตถุดิบและบรรจุภัณฑ์ในหน้าสต็อกก่อน',
   'Add ingredients and packaging to start tracking stock.': 'เพิ่มวัตถุดิบและบรรจุภัณฑ์เพื่อเริ่มติดตามสต็อก',

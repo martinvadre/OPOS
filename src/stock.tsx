@@ -64,6 +64,8 @@ export function StockPage({ stock, savePurchase }: {
   stock: StockItem[]
   savePurchase: (id: number | null, input: { name: string; unit: Unit; quantity: number; cost: number }) => Promise<void>
 }) {
+  const [search, setSearch] = useState('')
+  const visibleStock = stock.filter(item => item.name.toLowerCase().includes(search.trim().toLowerCase()))
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<StockItem | null>(null)
   const [name, setName] = useState('')
@@ -100,23 +102,28 @@ export function StockPage({ stock, savePurchase }: {
   return <>
     <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] flex-wrap items-center justify-between gap-3">
       <h1 className="text-[21pt] font-bold leading-tight tracking-tight">Stock</h1>
-      <Button className="h-[calc(var(--radius-card)*2)] rounded-full" onClick={() => startPurchase(null)}><Plus />Add stock item</Button>
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+        <Input type="search" aria-label="Search stock" placeholder="Search stock…"
+          className="h-[calc(var(--radius-card)*2)] min-w-32 flex-1 rounded-full border-0 bg-background px-4 shadow-sm sm:w-60"
+          value={search} onChange={event => setSearch(event.target.value)} />
+        <Button className="h-[calc(var(--radius-card)*2)] shrink-0 rounded-full" onClick={() => startPurchase(null)}><Plus />Add stock item</Button>
+      </div>
     </div>
     <Card className="gap-0 overflow-hidden border-0 bg-background py-0 shadow-sm">
-      {stock.length ? <Table>
+      {visibleStock.length ? <Table>
         <TableHeader><TableRow>
           <TableHead className="pl-inset">Stock item</TableHead>
           <TableHead>On hand</TableHead>
           <TableHead>Latest purchase</TableHead>
           <TableHead className="text-right pr-inset">Actions</TableHead>
         </TableRow></TableHeader>
-        <TableBody>{stock.map(item => <TableRow key={item.id}>
+        <TableBody>{visibleStock.map(item => <TableRow key={item.id}>
           <TableCell className="pl-inset font-medium"><span translate="no">{item.name}</span></TableCell>
           <TableCell className={item.quantity < 0 ? 'font-semibold text-destructive' : ''}>{formatQuantity.format(item.quantity)} {item.unit}</TableCell>
           <TableCell>{formatQuantity.format(item.lastPurchase.quantity)} {item.unit} · {formatMoney(item.lastPurchase.cost)}</TableCell>
           <TableCell className="pr-inset text-right"><Button variant="outline" size="sm" onClick={() => startPurchase(item)}>Restock</Button></TableCell>
         </TableRow>)}</TableBody>
-      </Table> : <p className="p-inset text-sm text-muted-foreground">Add ingredients and packaging to start tracking stock.</p>}
+      </Table> : <p className="p-inset text-sm text-muted-foreground">{stock.length ? 'No matching stock items' : 'Add ingredients and packaging to start tracking stock.'}</p>}
     </Card>
     <Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value) }}>
       <DialogContent aria-describedby={undefined} className="border-0">

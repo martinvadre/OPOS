@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { CircleCheck, CircleAlert, ArrowUp, ArrowDown, ArrowUpDown, Delete, Utensils, CalendarDays, ChartNoAxesColumn, ChevronDown, ChevronLeft, ChevronRight, ConciergeBell, Download, Eye, EyeOff, TicketPercent, LogOut, Package, Plus, Settings, ShoppingCart, SquarePen, Trash2, Minus, X } from 'lucide-react'
+import { CircleCheck, CircleAlert, ArrowUp, ArrowDown, ArrowUpDown, Delete, Utensils, CalendarDays, ChartNoAxesColumn, ChevronDown, ChevronLeft, ChevronRight, ConciergeBell, Download, Eye, EyeOff, TicketPercent, LogOut, Package, Boxes, Plus, Settings, ShoppingCart, SquarePen, Trash2, Minus, X } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import cocoaImg from '@/assets/cocoa.png'
@@ -122,7 +122,7 @@ export function App() {
   const [activeTableVersion, setActiveTableVersion] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>(() => {
     const saved = localStorage.getItem('iaun-tab')
-    return saved === 'dashboard' || saved === 'inventory' || saved === 'stock' || saved === 'reports' || saved === 'settings' ? saved : 'pos'
+    return saved === 'dashboard' || saved === 'inventory' || saved === 'stock' || saved === 'tables' || saved === 'reports' || saved === 'settings' ? saved : 'pos'
   })
   const [reportView, setReportView] = useState<'sales' | 'menu' | null>(() => { const saved = localStorage.getItem('iaun-report-view'); return saved === 'sales' || saved === 'menu' ? saved : null })
   const [search, setSearch] = useState('')
@@ -614,7 +614,7 @@ export function App() {
         <SidebarContent className="pt-4">
           <div className="hidden items-center gap-2 px-3 transition-[gap] duration-200 ease-in-out group-data-[collapsible=icon]:gap-0 md:flex"><SidebarTrigger className="size-10 shrink-0 rounded-lg p-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:!size-6" /><span className="max-w-[96pt] overflow-hidden text-xl font-extrabold tracking-[-.04em] whitespace-nowrap text-sidebar-foreground transition-[max-width,opacity] duration-200 ease-in-out group-data-[collapsible=icon]:max-w-0 group-data-[collapsible=icon]:opacity-0">OPOS</span></div>
           <SidebarMenu className="gap-2 px-3">
-            {([{ key: 'pos', label: 'POS', icon: ShoppingCart }, ...(restaurantEnabled ? [{ key: 'tables' as const, label: 'Tables', icon: DiningTableIcon }] : []), { key: 'reports', label: 'Reports', icon: ChartNoAxesColumn }, { key: 'inventory', label: 'Menu', icon: Utensils }, { key: 'stock', label: 'Stock', icon: Package }, { key: 'dashboard', label: 'Promotions', icon: TicketPercent }] as const).map(({ key, label, icon: Icon }) => (
+            {([{ key: 'pos', label: 'POS', icon: ShoppingCart }, ...(restaurantEnabled ? [{ key: 'tables' as const, label: 'Tables', icon: DiningTableIcon }] : []), { key: 'reports', label: 'Reports', icon: ChartNoAxesColumn }, { key: 'inventory', label: 'Menu', icon: Utensils }, { key: 'stock', label: 'Stock', icon: Boxes }, { key: 'dashboard', label: 'Promotions', icon: TicketPercent }] as const).map(({ key, label, icon: Icon }) => (
               <SidebarMenuItem key={key}>
                 <SidebarMenuButton className="h-10 px-3 !transition-none group-data-[collapsible=icon]:!h-10 group-data-[collapsible=icon]:!w-full group-data-[collapsible=icon]:!p-3" isActive={tab === key} onClick={() => selectTab(key)} aria-label={label}>
                   <Icon /><span className="transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">{label}</span>
