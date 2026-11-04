@@ -28,6 +28,17 @@ test('sign-up, account settings, and register data are isolated', { skip: !proce
     assert.equal(b.status, 201);
     assert.equal((await call('signup', 'POST', { username: 'SHOP-A', password: 'test-password-123' })).status, 409);
     assert.equal((await call('state')).status, 401);
+    const tokenHash = crypto.createHash('sha256').update(a.cookie.split('=')[1]).digest('hex');
+    assert.equal((await call('state', 'GET', undefined, a.cookie)).cookie, undefined);
+    await client.query("UPDATE pos_sessions SET expires_at = NOW() + INTERVAL '1 hour' WHERE token_hash = $1", [tokenHash]);
+    const renewed = await call('state', 'GET', undefined, a.cookie);
+    assert.equal(renewed.status, 200);
+    assert.equal(renewed.cookie, a.cookie);
+    const expiry = await client.query("SELECT expires_at > NOW() + INTERVAL '11 hours' AS extended FROM pos_sessions WHERE token_hash = $1", [tokenHash]);
+    assert.equal(expiry.rows[0].extended, true);
+    await client.query("UPDATE pos_sessions SET expires_at = NOW() - INTERVAL '1 second' WHERE token_hash = $1", [tokenHash]);
+    assert.equal((await call('state', 'GET', undefined, a.cookie)).status, 401);
+    a.cookie = (await call('login', 'POST', { username: 'shop-a', password: 'test-password-123' })).cookie;
     const empty = await call('state', 'GET', undefined, b.cookie);
     assert.deepEqual(empty.data.products, []);
     assert.deepEqual(empty.data.sales, []);

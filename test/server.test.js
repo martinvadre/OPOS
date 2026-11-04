@@ -60,6 +60,7 @@ test('add-ons, promotions, hidden products, and sales persist without double cou
     assert.equal(promotion.status, 201);
     assert.equal((await call('state')).data.promotions[0].name, 'Tea special');
     const order = { requestId: crypto.randomUUID(), payment: 'cash', received: 2400, promotionId: promotion.data.id, items: [{ id: product.data.id, quantity: 2, addons: [0] }] };
+    assert.equal((await call('sales', 'POST', { ...order, items: [null] })).status, 400);
     const first = await call('sales', 'POST', order);
     assert.equal(first.data.total, 2400);
     assert.equal((await call('sales', 'POST', order)).data.id, first.data.id);
@@ -196,6 +197,31 @@ test('add-ons, promotions, hidden products, and sales persist without double cou
     assert.equal((await call('settings', 'PUT', { promptpayId: '0123456789' })).status, 409);
     assert.equal((await call('settings', 'PUT', { promptpayEnabled: true })).status, 200);
     assert.equal((await call('promptpay?amount=500')).status, 200);
+
+    const milk = await call('stock', 'POST', { name: 'Condensed milk', unit: 'ml', quantity: 2000, cost: 50000 });
+    const cups = await call('stock', 'POST', { name: '16 oz cup', unit: 'pcs', quantity: 2, cost: 600 });
+    assert.equal(milk.status, 201);
+    assert.equal(cups.status, 201);
+    const recipe = [{ stockId: milk.data.id, quantity: 200.5 }, { stockId: cups.data.id, quantity: 1 }];
+    const drink = { name: 'Thai tea with recipe', price: 4500, addons: [] };
+    assert.equal((await call('products', 'POST', { ...drink, recipe: [{ stockId: cups.data.id, quantity: 0.5 }] })).status, 400);
+    const savedDrink = await call('products', 'POST', { ...drink, recipe });
+    assert.equal(savedDrink.status, 201);
+    assert.deepEqual((await call('state')).data.products.find(item => item.id === savedDrink.data.id).recipe, recipe);
+    const stockOrder = {
+      requestId: crypto.randomUUID(), payment: 'cash', received: 9000,
+      items: [{ id: savedDrink.data.id, quantity: 2, addons: [] }],
+    };
+    assert.equal((await call('sales', 'POST', { ...stockOrder, received: 0 })).status, 409);
+    assert.deepEqual((await call('state')).data.stock.map(item => item.quantity), [2000, 2]);
+    assert.equal((await call('sales', 'POST', stockOrder)).status, 201);
+    assert.equal((await call('sales', 'POST', stockOrder)).status, 200);
+    assert.deepEqual((await call('state')).data.stock.map(item => item.quantity), [1599, 0]);
+    const refill = await call(`stock/${milk.data.id}/restock`, 'POST', { quantity: 401, cost: 20050 });
+    assert.equal(refill.status, 200);
+    assert.equal(refill.data.quantity, 2000);
+    assert.equal(refill.data.unitCost, (1599 * 25 + 20050) / 2000);
+    assert.deepEqual(refill.data.lastPurchase, { quantity: 401, cost: 20050 });
 
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'pos-data.json'), 'utf8')).products.some(item => item.id === importedItem.id), true);
   } finally {

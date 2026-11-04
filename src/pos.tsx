@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { CircleCheck, CircleAlert, ArrowUp, ArrowDown, ArrowUpDown, Delete, Utensils, CalendarDays, ChartNoAxesColumn, ChevronDown, ChevronLeft, ChevronRight, ConciergeBell, Download, Eye, EyeOff, TicketPercent, LogOut, Package, Plus, Settings, ShoppingCart, SquarePen, Trash2, Minus, X } from 'lucide-react'
-import { DropdownMenu, Popover } from 'radix-ui'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import * as Popover from '@radix-ui/react-popover'
 import cocoaImg from '@/assets/cocoa.png'
 import thaiTeaImg from '@/assets/thai-tea.png'
 
@@ -20,6 +21,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Sidebar, SidebarContent, SidebarFooter, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { StockPage, RecipeEditor, type StockItem, type RecipeLine } from '@/stock'
 import { TablesPage, type DiningTable, type TableGrid } from '@/tables'
 import { MenuImport } from '@/menu-import'
 import { CategorySelector } from '@/category-selector'
@@ -27,7 +29,7 @@ import { applyLanguage, type Language } from '@/language'
 
 type Addon = { name: string; price: number }
 type Priority = 'high' | 'medium' | 'low'
-type Product = { id: number; name: string; category?: string; price: number; priority: Priority; addons: Addon[]; hidden: boolean; image?: string }
+type Product = { id: number; name: string; category?: string; price: number; priority: Priority; addons: Addon[]; hidden: boolean; image?: string; recipe?: RecipeLine[] }
 type Sale = { id: number; date: string; total: number; discount?: number; payment: string; table?: { id: number; name: string; guests: number } | null; items: { id: number; name: string; price: number; quantity: number; addons?: Addon[] }[] }
 type CartItem = { id: number; quantity: number; addons: number[] }
 type PromotionEffect = { type: 'fixed' | 'percent'; value: number } | { type: 'free_addon'; addonName: string }
@@ -36,10 +38,10 @@ type EffectForm = { type: PromotionEffect['type'] | 'none'; value: string; addon
 const emptyPromotionEffects = (): EffectForm[] => [{ type: 'fixed', value: '', addonName: '' }, { type: 'none', value: '', addonName: '' }]
 const effectToForm = (effect: PromotionEffect): EffectForm => effect.type === 'free_addon' ? { type: effect.type, value: '', addonName: effect.addonName } : { type: effect.type, value: effect.type === 'fixed' ? (effect.value / 100).toFixed(2) : String(effect.value), addonName: '' }
 const promotionTypeLabels: Record<EffectForm['type'], string> = { none: 'None', fixed: 'Baht off', percent: 'Percent off', free_addon: 'Free add-on' }
-type Tab = 'dashboard' | 'pos' | 'inventory' | 'reports' | 'settings' | 'tables'
+type Tab = 'dashboard' | 'pos' | 'inventory' | 'reports' | 'settings' | 'tables' | 'stock'
 type Payment = 'cash' | 'promptpay' | `manual:${string}`
-type ProductForm = { name: string; category: string; price: string; priority: Priority; addons: { name: string; price: string }[]; image: string; imageName: string }
-const emptyForm = (): ProductForm => ({ name: '', category: '', price: '', priority: 'medium', addons: [], image: '', imageName: '' })
+type ProductForm = { name: string; category: string; price: string; priority: Priority; addons: { name: string; price: string }[]; image: string; imageName: string; recipe: RecipeLine[] }
+const emptyForm = (): ProductForm => ({ name: '', category: '', price: '', priority: 'medium', addons: [], image: '', imageName: '', recipe: [] })
 const cartKey = (item: CartItem) => `${item.id}:${item.addons.join(',')}`
 const baht = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' })
 const money = (satang: number) => baht.format(satang / 100)
@@ -108,6 +110,7 @@ export function App() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [stock, setStock] = useState<StockItem[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [sales, setSales] = useState<Sale[]>([])
   const [promotions, setPromotions] = useState<Promotion[]>([])
@@ -119,7 +122,7 @@ export function App() {
   const [activeTableVersion, setActiveTableVersion] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>(() => {
     const saved = localStorage.getItem('iaun-tab')
-    return saved === 'dashboard' || saved === 'inventory' || saved === 'reports' || saved === 'settings' ? saved : 'pos'
+    return saved === 'dashboard' || saved === 'inventory' || saved === 'stock' || saved === 'reports' || saved === 'settings' ? saved : 'pos'
   })
   const [reportView, setReportView] = useState<'sales' | 'menu' | null>(() => { const saved = localStorage.getItem('iaun-report-view'); return saved === 'sales' || saved === 'menu' ? saved : null })
   const [search, setSearch] = useState('')
@@ -197,9 +200,10 @@ export function App() {
   }, [authenticated])
 
   async function refresh() {
-    const state = await api<{ accountId?: number; promptpayEnabled?: boolean; promptpayConfigured?: boolean; manualPayments?: string[]; restaurantEnabled?: boolean; tables?: DiningTable[]; tableGrid?: TableGrid; products: Product[]; sales: Sale[]; promotions: Promotion[] }>('state')
+    const state = await api<{ accountId?: number; promptpayEnabled?: boolean; promptpayConfigured?: boolean; manualPayments?: string[]; restaurantEnabled?: boolean; tables?: DiningTable[]; tableGrid?: TableGrid; stock?: StockItem[]; products: Product[]; sales: Sale[]; promotions: Promotion[] }>('state')
     const nextAccountId = state.accountId ?? 1
     setProducts(state.products)
+    setStock(state.stock || [])
     setSales(state.sales)
     setPromotions(state.promotions)
     setRestaurantEnabled(!!state.restaurantEnabled)
@@ -324,8 +328,19 @@ export function App() {
   const activeTableName = activeTable && [activeTable, ...tables.filter(table => activeTable.combinedTableIds?.includes(table.id))]
     .map(table => table.name).join(' + ')
   const tableOrderChanged = !!activeTable && JSON.stringify(cart.map(item => [item.id, item.quantity, item.addons])) !== JSON.stringify(activeTable.order.map(item => [item.id, item.quantity, item.addons]))
+  function canOpenTableOrder() {
+    if (activeTableId === null && cart.length) {
+      error('Finish or clear the current sale before opening a table order')
+      return false
+    }
+    if (tableOrderChanged) {
+      error('Save the current table order before switching tables')
+      return false
+    }
+    return true
+  }
   function openTableOrder(table: DiningTable) {
-    if ((activeTableId === null && cart.length) || tableOrderChanged) return error(activeTableId === null ? 'Finish or clear the current sale before opening a table order' : 'Save the current table order before switching tables')
+    if (!canOpenTableOrder()) return
     setActiveTableId(table.id); setActiveTableVersion(table.version); setCart(structuredClone(table.order)); setSelectedPromotionId(null); setTab('pos'); setCheckout(false); saleRequestId.current = requestId(); setNotice(null)
   }
   async function transferTableOrder(source: DiningTable, destination: DiningTable, action: 'move' | 'combine', guests: number) {
@@ -447,7 +462,7 @@ export function App() {
   function openProduct(product?: Product) {
     setEditingId(product?.id ?? null)
     const initialImage = product ? (product.image ?? productImages[product.name.trim().toLowerCase()] ?? '') : ''
-    setForm(product ? { name: product.name, category: product.category || '', price: (product.price / 100).toFixed(2), priority: product.priority, addons: product.addons.map(addon => ({ name: addon.name, price: (addon.price / 100).toFixed(2) })), image: initialImage, imageName: '' } : emptyForm())
+    setForm(product ? { name: product.name, category: product.category || '', price: (product.price / 100).toFixed(2), priority: product.priority, addons: product.addons.map(addon => ({ name: addon.name, price: (addon.price / 100).toFixed(2) })), image: initialImage, imageName: '', recipe: product.recipe || [] } : emptyForm())
     setProductDialog(true)
   }
   function selectImage(file?: File) {
@@ -477,7 +492,7 @@ export function App() {
     setBusy(true)
     try {
       const categoryName = form.category.trim()
-      const payload = { name: form.name.trim(), category: menuCategories.find(category => category.toLowerCase() === categoryName.toLowerCase()) || categoryName, price: toCents(form.price), priority: form.priority, addons: form.addons.map(addon => ({ name: addon.name.trim(), price: toCents(addon.price) })), image: form.image }
+      const payload = { name: form.name.trim(), category: menuCategories.find(category => category.toLowerCase() === categoryName.toLowerCase()) || categoryName, price: toCents(form.price), priority: form.priority, addons: form.addons.map(addon => ({ name: addon.name.trim(), price: toCents(addon.price) })), image: form.image, recipe: form.recipe }
       await api(editingId ? `products/${editingId}` : 'products', editingId ? 'PUT' : 'POST', payload)
       setProductDialog(false)
       await refresh()
@@ -595,11 +610,11 @@ export function App() {
         <span className="ml-2 text-xl font-extrabold tracking-[-.04em] text-white">OPOS</span>
         <span className="ml-auto flex items-center gap-2 text-xs font-medium text-white/80" role="status" aria-label="Register ready">{showStatusText && <span aria-hidden="true">Register ready</span>}<span aria-hidden="true" className="size-2 rounded-full bg-emerald-400" /></span>
       </header>
-      <Sidebar collapsible="icon" className="!top-16 !bottom-0 !h-auto border-sidebar-border bg-sidebar text-sidebar-foreground md:!top-0">
+      <Sidebar className="!top-16 !bottom-0 !h-auto border-sidebar-border bg-sidebar text-sidebar-foreground md:!top-0">
         <SidebarContent className="pt-4">
           <div className="hidden items-center gap-2 px-3 transition-[gap] duration-200 ease-in-out group-data-[collapsible=icon]:gap-0 md:flex"><SidebarTrigger className="size-10 shrink-0 rounded-lg p-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:!size-6" /><span className="max-w-[96pt] overflow-hidden text-xl font-extrabold tracking-[-.04em] whitespace-nowrap text-sidebar-foreground transition-[max-width,opacity] duration-200 ease-in-out group-data-[collapsible=icon]:max-w-0 group-data-[collapsible=icon]:opacity-0">OPOS</span></div>
           <SidebarMenu className="gap-2 px-3">
-            {([{ key: 'pos', label: 'POS', icon: ShoppingCart }, ...(restaurantEnabled ? [{ key: 'tables' as const, label: 'Tables', icon: DiningTableIcon }] : []), { key: 'reports', label: 'Reports', icon: ChartNoAxesColumn }, { key: 'inventory', label: 'Menu', icon: Utensils }, { key: 'dashboard', label: 'Promotions', icon: TicketPercent }] as const).map(({ key, label, icon: Icon }) => (
+            {([{ key: 'pos', label: 'POS', icon: ShoppingCart }, ...(restaurantEnabled ? [{ key: 'tables' as const, label: 'Tables', icon: DiningTableIcon }] : []), { key: 'reports', label: 'Reports', icon: ChartNoAxesColumn }, { key: 'inventory', label: 'Menu', icon: Utensils }, { key: 'stock', label: 'Stock', icon: Package }, { key: 'dashboard', label: 'Promotions', icon: TicketPercent }] as const).map(({ key, label, icon: Icon }) => (
               <SidebarMenuItem key={key}>
                 <SidebarMenuButton className="h-10 px-3 !transition-none group-data-[collapsible=icon]:!h-10 group-data-[collapsible=icon]:!w-full group-data-[collapsible=icon]:!p-3" isActive={tab === key} onClick={() => selectTab(key)} aria-label={label}>
                   <Icon /><span className="transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">{label}</span>
@@ -617,7 +632,7 @@ export function App() {
           {notification}
           <div className={tab === 'pos' ? 'grid items-start gap-inset lg:grid-cols-[minmax(0,1fr)_255pt] xl:grid-cols-[minmax(0,1fr)_270pt]' : 'block'}>
             <section className="min-w-0">
-              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} grid={tableGrid} request={api} refresh={refresh} openOrder={openTableOrder} transferOrder={transferTableOrder} onGuestUpdated={(table, previousVersion) => { if (activeTableId === table.id && activeTableVersion === previousVersion) setActiveTableVersion(table.version) }} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
+              {tab === 'tables' && restaurantEnabled && <TablesPage tables={tables} grid={tableGrid} request={api} refresh={refresh} openOrder={openTableOrder} canOpenOrder={canOpenTableOrder} transferOrder={transferTableOrder} onGuestUpdated={(table, previousVersion) => { if (activeTableId === table.id && activeTableVersion === previousVersion) setActiveTableVersion(table.version) }} itemName={id => products.find(product => product.id === id)?.name || `Product #${id}`} lineTotal={lineTotal} onError={error} />}
               {tab === 'dashboard' && <>
                 <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] items-center"><PageHeading title="Promotions" /></div>
                 <Card className="mb-inset gap-inset border-0 bg-background p-inset shadow-sm">
@@ -652,6 +667,12 @@ export function App() {
                   </Card> })}
                 </div> : search || selectedCategory !== null ? <Card className="min-h-52 items-center justify-center border-0 bg-background shadow-sm"><CardContent className="text-center"><h2 className="font-semibold">No matching products</h2><p className="mt-1 text-sm text-muted-foreground">Try another search or category.</p></CardContent></Card> : <Card className="relative min-h-[300pt] justify-center overflow-hidden border-0 bg-primary text-white shadow-lg shadow-primary/10"><div aria-hidden="true" className="absolute -right-20 -top-28 size-80 rounded-full bg-white/15 blur-3xl" /><CardContent className="relative z-10 max-w-[315pt]"><span className="mb-7 grid size-12 place-items-center rounded-lg bg-white/10 text-[#a8c7ff]"><Package className="size-6" /></span><p className="mb-2 text-xs font-semibold tracking-[.18em] text-[#9bbcf7]">READY WHEN YOU ARE</p><h2 className="text-3xl font-semibold leading-tight tracking-tight">Start with your first product.</h2><p className="mt-3 max-w-sm text-sm leading-6 text-[#c5d3e8]">Add products to your catalog, then tap any item here to ring it up.</p><Button variant="secondary" className="mt-7 bg-white text-primary hover:bg-[#eaf1ff]" onClick={() => { setTab('inventory'); openProduct() }}><Plus /> Add a product</Button></CardContent><div aria-hidden="true" className="absolute right-8 top-20 hidden h-56 w-44 rotate-[-10deg] rounded-lg border-[0.75pt] border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-sm sm:block"><div className="mb-5 grid size-12 place-items-center rounded-lg bg-white/15"><Package className="size-6 text-white" /></div><div className="h-2 w-28 rounded-[3pt] bg-white/40" /><div className="mt-3 h-2 w-20 rounded-[3pt] bg-white/20" /><div className="mt-10 h-[0.75pt] bg-white/20" /><div className="mt-5 h-3 w-16 rounded-[3pt] bg-white/60" /></div></Card>}
               </>}
+              {tab === 'stock' && <StockPage stock={stock} savePurchase={async (id, input) => {
+                const item = await api<StockItem>(id === null ? 'stock' : `stock/${id}/restock`, 'POST', input)
+                setStock(current => current.some(entry => entry.id === item.id)
+                  ? current.map(entry => entry.id === item.id ? item : entry)
+                  : [...current, item])
+              }} />}
               {tab === 'inventory' && <>
                 <div className="mb-inset flex min-h-[calc(var(--radius-card)*2)] flex-wrap items-center justify-between gap-3"><PageHeading title="Menu" /><div className="flex flex-wrap items-center gap-2"><MenuImport names={products.map(product => product.name)} onError={error} onImport={async csv => { const result = await api<{ added: number; skipped: number }>('products/import', 'POST', { csv }); await refresh(); setNotice({ text: `${result.added} menu ${result.added === 1 ? 'item' : 'items'} added${result.skipped ? ` · ${result.skipped} skipped` : ''}`, error: false }) }} /><Button className="h-[calc(var(--radius-card)*2)] rounded-full has-[>svg]:px-inset" onClick={() => openProduct()}><Plus /> Add product</Button></div></div>
                 {products.length ? <Card className="gap-0 overflow-hidden border-0 bg-background py-0 shadow-sm [&_tr]:border-border">
@@ -779,6 +800,7 @@ export function App() {
             <div className="space-y-2"><Label htmlFor="product-category">Category <span className="text-muted-foreground">(optional)</span></Label><Input className="h-10" id="product-category" placeholder="e.g. Drinks" value={form.category} maxLength={60} onChange={event => setForm({ ...form, category: event.target.value })} />{suggestedCategories.length > 0 && <div className="space-y-2"><p className="text-xs text-muted-foreground">Existing categories</p><div className="flex flex-wrap gap-2">{suggestedCategories.map(category => <Button key={category} type="button" size="sm" variant="outline" className="max-w-full border-input" onClick={() => setForm(current => ({ ...current, category }))}><span className="truncate" translate="no">{category}</span></Button>)}</div></div>}</div>
             <div className="space-y-2"><Label htmlFor="product-price" className="gap-1">Price<span className="text-destructive">*</span></Label><Input className="h-10" id="product-price" type="number" min="0" step="0.01" value={form.price} onChange={event => setForm({ ...form, price: event.target.value })} required /></div>
             <div className="space-y-2"><Label htmlFor="product-priority">Priority</Label><div className="relative"><select id="product-priority" className="h-10 w-full appearance-none rounded-md border-[0.75pt] border-input bg-background pl-3 pr-10 text-sm shadow-xs focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[2.25pt] focus-visible:ring-ring/50" value={form.priority} onChange={event => setForm({ ...form, priority: event.target.value as Priority })}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2" /></div><p className="text-xs text-muted-foreground">High items appear first at checkout.</p></div>
+            <RecipeEditor stock={stock} recipe={form.recipe} onChange={recipe => setForm(current => ({ ...current, recipe }))} />
             <div className="space-y-3"><div className="flex items-center justify-between"><Label>Add-ons</Label><Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, addons: [...form.addons, { name: '', price: '' }] })} disabled={form.addons.length >= 20}><Plus /> Add add-on</Button></div>
               {form.addons.map((addon, index) => <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_72pt_24pt] items-center gap-2"><Input aria-label={`Add-on ${index + 1} name`} placeholder="Cream cheese" value={addon.name} maxLength={80} required onChange={event => setForm({ ...form, addons: form.addons.map((value, i) => i === index ? { ...value, name: event.target.value } : value) })} /><Input aria-label={`Add-on ${index + 1} price in baht`} type="number" min="0" step="0.01" placeholder="฿10" value={addon.price} required onChange={event => setForm({ ...form, addons: form.addons.map((value, i) => i === index ? { ...value, price: event.target.value } : value) })} /><Button type="button" variant="ghost" size="icon" className="size-6 text-destructive" aria-label={`Remove add-on ${index + 1}`} onClick={() => setForm({ ...form, addons: form.addons.filter((_, i) => i !== index) })}><X /></Button></div>)}
             </div>

@@ -189,4 +189,4 @@ function releaseTable(table) {
 
 const productInOpenOrder = (data, id) => tableState(data).tables.some(table => table.openedAt && table.order.some(item => item.id === id));
 
-module.exports = { tableState, tableMutation, tableForSale, releaseTable, productInOpenOrder };
+module.exports = { validItems, tableState, tableMutation, tableForSale, releaseTable, productInOpenOrder };

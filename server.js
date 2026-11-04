@@ -4,9 +4,11 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const promptpayPayload = require('promptpay-qr');
 const QRCode = require('qrcode');
-const { effectsOf, promotionFields, validPromotion, promotionProductsAvailable, promotionDiscount } = require('./promotion');
-const { tableState, tableMutation, tableForSale, releaseTable, productInOpenOrder } = require('./tables');
-const { manualPayments, promptpayEnabled, validManualPayments, validPaymentCode, paymentAvailable } = require('./payment-methods');
+const { promotionFields, validPromotion, promotionProductsAvailable } = require('./promotion');
+const { tableState, tableMutation, productInOpenOrder } = require('./tables');
+const { manualPayments, promptpayEnabled, validManualPayments } = require('./payment-methods');
+const { validSale, recordSale } = require('./sales');
+const { stockMutation, validRecipe } = require('./stock');
 
 const dataDir = process.env.POS_DATA_DIR || __dirname;
 const dataFile = path.join(dataDir, 'pos-data.json');
@@ -46,7 +48,7 @@ const attempts = new Map();
 const distDir = path.join(__dirname, 'dist');
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const send = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
-const products = () => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category, priority }) => ({ id, name, price, category: category || '', priority: priority || 'medium', image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
+const products = () => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category, priority, recipe }) => ({ id, name, price, category: category || '', priority: priority || 'medium', recipe: recipe || [], image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
 // shortcut: send full history for one register; paginate if sales volume makes state slow.
 const sales = () => data.sales.slice().reverse().map(({ requestId, ...sale }) => sale);
 const validAddons = addons => Array.isArray(addons) && addons.length <= 20 && addons.every(a => a && typeof a.name === 'string' && a.name.trim().length > 0 && a.name.trim().length <= 80 && Number.isSafeInteger(a.price) && a.price >= 0 && a.price <= 100000000);
@@ -77,8 +79,14 @@ async function handler(req, res) {
   }
   if (url.pathname.startsWith('/api/')) {
     const token = /(?:^|; )pos_session=([a-f0-9]{64})/.exec(req.headers.cookie || '')?.[1];
-    if (!token || (sessions.get(token) || 0) < Date.now()) return send(res, 401, { error: 'Sign in to continue' });
+    const now = Date.now();
+    const expires = sessions.get(token) || 0;
+    if (!token || expires <= now) return send(res, 401, { error: 'Sign in to continue' });
     if (url.pathname === '/api/logout' && req.method === 'POST') { sessions.delete(token); res.setHeader('Set-Cookie', 'pos_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return send(res, 200, { ok: true }); }
+    if (expires - now <= 11 * 60 * 60 * 1000) {
+      sessions.set(token, now + 12 * 60 * 60 * 1000);
+      res.setHeader('Set-Cookie', `pos_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);
+    }
     if (url.pathname === '/api/settings' && req.method === 'GET') return send(res, 200, { username: credentials().username, promptpayId: promptpayId(), promptpayEnabled: promptpayEnabled(data, promptpayId()), manualPayments: manualPayments(data) });
     if (url.pathname === '/api/settings' && req.method === 'PUT') {
       const input = await body(req);
@@ -105,7 +113,7 @@ async function handler(req, res) {
       if (input.newPassword !== undefined) { const expires = sessions.get(token); sessions.clear(); sessions.set(token, expires); }
       return send(res, 200, { username, promptpayId: nextPromptpayId, promptpayEnabled: promptpayEnabled(data, nextPromptpayId), manualPayments: manualPayments(data) });
     }
-    if (url.pathname === '/api/state' && req.method === 'GET') return send(res, 200, { ...tableState(data), promptpayEnabled: promptpayEnabled(data, promptpayId()), promptpayConfigured: promptpayEnabled(data, promptpayId()) && !!promptpayId(), manualPayments: manualPayments(data), products: products(), sales: sales(), promotions: (data.promotions || []).filter(p => p.active !== false) });
+    if (url.pathname === '/api/state' && req.method === 'GET') return send(res, 200, { ...tableState(data), stock: data.stock || [], promptpayEnabled: promptpayEnabled(data, promptpayId()), promptpayConfigured: promptpayEnabled(data, promptpayId()) && !!promptpayId(), manualPayments: manualPayments(data), products: products(), sales: sales(), promotions: (data.promotions || []).filter(p => p.active !== false) });
     if (url.pathname === '/api/promptpay' && req.method === 'GET') {
       const amount = Number(url.searchParams.get('amount'));
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 100000000) return send(res, 400, { error: 'Invalid PromptPay amount' });
@@ -116,6 +124,13 @@ async function handler(req, res) {
       return send(res, 200, { qr });
     }
     const tableRoute = url.pathname.slice('/api/'.length);
+    if (req.method === 'POST' && (tableRoute === 'stock' || /^stock\/\d+\/restock$/.test(tableRoute))) {
+      const input = await body(req);
+      const next = structuredClone(data);
+      const result = stockMutation(next, tableRoute, input);
+      if (result.save) save(next);
+      return send(res, result.status, result.value);
+    }
     if (((tableRoute === 'restaurant' || tableRoute === 'tables/grid') && req.method === 'PUT') || ((tableRoute === 'tables' || /^tables\/\d+$/.test(tableRoute)) && ['POST', 'PATCH', 'DELETE'].includes(req.method))) {
       const input = await body(req);
       const next = structuredClone(data);
@@ -178,9 +193,10 @@ async function handler(req, res) {
     if (url.pathname === '/api/products' && req.method === 'POST') {
       const p = await body(req);
       if (!validProduct(p)) return send(res, 400, { error: 'Enter a valid product and add-ons' });
+      if (!validRecipe(data, p.recipe)) return send(res, 400, { error: 'Enter valid recipe quantities and stock items' });
       const next = structuredClone(data);
       const id = Math.max(0, ...next.products.map(p => p.id)) + 1;
-      next.products.push({ id, name: p.name.trim(), price: p.price, priority: p.priority || 'medium', addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
+      next.products.push({ id, name: p.name.trim(), price: p.price, priority: p.priority || 'medium', recipe: p.recipe || [], addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
       save(next);
       return send(res, 201, { id });
     }
@@ -188,11 +204,12 @@ async function handler(req, res) {
     if (match && req.method === 'PUT') {
       const p = await body(req);
       if (!validProduct(p)) return send(res, 400, { error: 'Enter a valid product and add-ons' });
+      if (!validRecipe(data, p.recipe)) return send(res, 400, { error: 'Enter valid recipe quantities and stock items' });
       const next = structuredClone(data);
       const current = next.products.find(p => p.id === Number(match[1]) && p.active);
       if (!current) return send(res, 404, { error: 'Product not found' });
       if (productInOpenOrder(next, current.id)) return send(res, 409, { error: 'Finish open table orders before changing this product' });
-      Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.priority !== undefined ? { priority: p.priority } : {}), ...(p.image !== undefined ? { image: p.image } : {}) });
+      Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.priority !== undefined ? { priority: p.priority } : {}), ...(p.image !== undefined ? { image: p.image } : {}), ...(p.recipe !== undefined ? { recipe: p.recipe } : {}) });
       save(next);
       return send(res, 200, { ok: true });
     }
@@ -218,33 +235,11 @@ async function handler(req, res) {
     }
     if (url.pathname === '/api/sales' && req.method === 'POST') {
       const order = await body(req);
-      if (!order || typeof order.requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(order.requestId) || !validPaymentCode(order.payment) || !Array.isArray(order.items) || !order.items.length || order.items.length > 100 || order.items.some(i => !Number.isSafeInteger(i.id) || !Number.isSafeInteger(i.quantity) || i.quantity < 1 || i.quantity > 10000 || !Array.isArray(i.addons) || i.addons.length > 20 || i.addons.some(a => !Number.isSafeInteger(a) || a < 0) || new Set(i.addons).size !== i.addons.length) || (order.payment === 'cash' && (!Number.isSafeInteger(order.received) || order.received < 0)) || (order.promotionId !== undefined && order.promotionId !== null && !Number.isSafeInteger(order.promotionId)) || order.discount !== undefined) return send(res, 400, { error: 'Invalid sale' });
-      const previous = data.sales.find(s => s.requestId === order.requestId);
-      if (previous) return send(res, 200, { id: previous.id, total: previous.total });
-      if (!paymentAvailable(data, promptpayId(), order.payment)) return send(res, 409, { error: 'Payment method unavailable. Refresh and try again.' });
+      if (!validSale(order)) return send(res, 400, { error: 'Invalid sale' });
       const next = structuredClone(data);
-      const tableResult = tableForSale(next, order);
-      if (tableResult.status) return send(res, tableResult.status, tableResult.value);
-      const table = tableResult.table;
-      const items = [];
-      for (const item of order.items) {
-        const p = next.products.find(p => p.id === item.id && p.active);
-        if (!p || p.hidden || item.addons.some(index => index >= (p.addons || []).length)) return send(res, 409, { error: 'Product or add-on unavailable. Refresh and try again.' });
-        const addons = item.addons.map(index => p.addons[index]);
-        items.push({ id: p.id, name: p.name, category: p.category || '', price: p.price + addons.reduce((sum, addon) => sum + addon.price, 0), quantity: item.quantity, addons });
-      }
-      const subtotal = items.reduce((n, p) => n + p.price * p.quantity, 0);
-      const promotion = order.promotionId == null ? null : (next.promotions || []).find(p => p.id === order.promotionId && p.active !== false && !p.hidden);
-      if (order.promotionId != null && !promotion) return send(res, 409, { error: 'Promotion unavailable. Refresh and try again.' });
-      const discount = promotionDiscount(promotion, items);
-      if (!Number.isSafeInteger(subtotal) || discount > subtotal || ((promotion?.categories || promotion?.productIds) && discount === 0) || (order.payment === 'promptpay' && discount === subtotal)) return send(res, 409, { error: 'Invalid discount' });
-      const total = subtotal - discount;
-      if (order.payment === 'cash' && order.received < total) return send(res, 409, { error: 'Insufficient payment' });
-      const id = Math.max(0, ...next.sales.map(s => s.id)) + 1;
-      next.sales.push({ id, table: table ? { id: table.id, name: table.name, guests: table.guests } : null, requestId: order.requestId, date: new Date().toISOString(), subtotal, discount, promotion: promotion ? { id: promotion.id, name: promotion.name, effects: effectsOf(promotion), categories: promotion.categories ?? null, productIds: promotion.productIds ?? null } : null, total, payment: order.payment, received: order.payment === 'cash' ? order.received : null, items });
-      releaseTable(table);
-      save(next);
-      return send(res, 201, { id, total });
+      const result = recordSale(next, order, promptpayId());
+      if (result.save) save(next);
+      return send(res, result.status, result.value);
     }
     return send(res, 404, { error: 'Not found' });
   }

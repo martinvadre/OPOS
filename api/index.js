@@ -2,9 +2,11 @@ const crypto = require('node:crypto');
 const { Pool } = require('pg');
 const promptpayPayload = require('promptpay-qr');
 const QRCode = require('qrcode');
-const { effectsOf, promotionFields, validPromotion, promotionProductsAvailable, promotionDiscount } = require('../promotion');
-const { tableState, tableMutation, tableForSale, releaseTable, productInOpenOrder } = require('../tables');
-const { manualPayments, promptpayEnabled, validManualPayments, validPaymentCode, paymentAvailable } = require('../payment-methods');
+const { promotionFields, validPromotion, promotionProductsAvailable } = require('../promotion');
+const { tableState, tableMutation, productInOpenOrder } = require('../tables');
+const { manualPayments, promptpayEnabled, validManualPayments } = require('../payment-methods');
+const { validSale, recordSale } = require('../sales');
+const { stockMutation, validRecipe } = require('../stock');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2, idleTimeoutMillis: 10000 });
 const send = (res, status, value) => { res.status(status); res.setHeader('Cache-Control', 'no-store'); return res.json(value); };
@@ -15,7 +17,7 @@ function checkPassword(password, stored) {
   return crypto.timingSafeEqual(Buffer.from(passwordHash, 'hex'), crypto.scryptSync(password, salt, 64));
 }
 function hashPassword(password) { const salt = crypto.randomBytes(16).toString('hex'); return `${salt}:${crypto.scryptSync(password, salt, 64).toString('hex')}`; }
-const products = data => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category, priority }) => ({ id, name, price, category: category || '', priority: priority || 'medium', image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
+const products = data => data.products.filter(p => p.active).map(({ id, name, price, image, addons, hidden, category, priority, recipe }) => ({ id, name, price, category: category || '', priority: priority || 'medium', recipe: recipe || [], image: image || '', addons: addons || [], hidden: !!hidden })).sort((a, b) => a.name.localeCompare(b.name));
 // shortcut: send full history for one register; paginate if sales volume makes state slow.
 const sales = data => data.sales.slice().reverse().map(({ requestId, ...sale }) => sale);
 const validAddons = addons => Array.isArray(addons) && addons.length <= 20 && addons.every(a => a && typeof a.name === 'string' && a.name.trim().length > 0 && a.name.trim().length <= 80 && Number.isSafeInteger(a.price) && a.price >= 0 && a.price <= 100000000);
@@ -110,13 +112,23 @@ module.exports = async function handler(req, res) {
     if (route === 'login' && req.method === 'POST') return await login(req, res);
     if (route === 'signup' && req.method === 'POST') return await signup(req, res);
     const token = /(?:^|; )pos_session=([a-f0-9]{64})/.exec(req.headers.cookie || '')?.[1];
-    const session = token && await pool.query('SELECT account_id FROM pos_sessions WHERE token_hash = $1 AND expires_at > NOW()', [hash(token)]);
+    const session = token && await pool.query(
+      "SELECT account_id, expires_at <= NOW() + INTERVAL '11 hours' AS should_renew FROM pos_sessions WHERE token_hash = $1 AND expires_at > NOW()",
+      [hash(token)]
+    );
     if (!session?.rowCount) return send(res, 401, { error: 'Sign in to continue' });
     const accountId = session.rows[0].account_id;
     if (route === 'logout' && req.method === 'POST') {
       await pool.query('DELETE FROM pos_sessions WHERE token_hash = $1', [hash(token)]);
       res.setHeader('Set-Cookie', 'pos_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
       return send(res, 200, { ok: true });
+    }
+    if (session.rows[0].should_renew) {
+      const renewed = await pool.query(
+        "UPDATE pos_sessions SET expires_at = NOW() + INTERVAL '12 hours' WHERE token_hash = $1 AND expires_at > NOW() AND expires_at <= NOW() + INTERVAL '11 hours'",
+        [hash(token)]
+      );
+      if (renewed.rowCount) res.setHeader('Set-Cookie', `pos_session=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200`);
     }
     if (route === 'settings' && req.method === 'GET') {
       const { rows } = await pool.query('SELECT c.username, c.promptpay_id, s.payload FROM pos_credentials c JOIN pos_state s ON s.id = c.id WHERE c.id = $1', [accountId]);
@@ -156,7 +168,7 @@ module.exports = async function handler(req, res) {
     }
     if (route === 'state' && req.method === 'GET') {
       const { rows } = await pool.query('SELECT s.payload, c.promptpay_id FROM pos_state s JOIN pos_credentials c ON c.id = s.id WHERE s.id = $1', [accountId]);
-      return rows.length ? send(res, 200, { accountId, ...tableState(rows[0].payload), promptpayEnabled: promptpayEnabled(rows[0].payload, rows[0].promptpay_id), promptpayConfigured: promptpayEnabled(rows[0].payload, rows[0].promptpay_id) && !!rows[0].promptpay_id, manualPayments: manualPayments(rows[0].payload), products: products(rows[0].payload), sales: sales(rows[0].payload), promotions: (rows[0].payload.promotions || []).filter(p => p.active !== false) }) : send(res, 503, { error: 'Database not initialized' });
+      return rows.length ? send(res, 200, { accountId, ...tableState(rows[0].payload), stock: rows[0].payload.stock || [], promptpayEnabled: promptpayEnabled(rows[0].payload, rows[0].promptpay_id), promptpayConfigured: promptpayEnabled(rows[0].payload, rows[0].promptpay_id) && !!rows[0].promptpay_id, manualPayments: manualPayments(rows[0].payload), products: products(rows[0].payload), sales: sales(rows[0].payload), promotions: (rows[0].payload.promotions || []).filter(p => p.active !== false) }) : send(res, 503, { error: 'Database not initialized' });
     }
     if (route === 'promptpay' && req.method === 'GET') {
       const amount = Number(req.query.amount);
@@ -166,6 +178,11 @@ module.exports = async function handler(req, res) {
       if (!paymentSettings || !promptpayEnabled(paymentSettings.payload, recipient)) return send(res, 409, { error: 'Enable PromptPay in Settings first' });
       if (!/^(0\d{9}|\d{13})$/.test(recipient)) return send(res, 503, { error: 'PromptPay recipient not configured' });
       return send(res, 200, { qr: await QRCode.toDataURL(promptpayPayload(recipient, { amount: amount / 100 }), { width: 280, margin: 2 }) });
+    }
+    if (req.method === 'POST' && (route === 'stock' || /^stock\/\d+\/restock$/.test(route))) {
+      const input = await body(req);
+      const result = await mutate(accountId, data => stockMutation(data, route, input));
+      return send(res, result.status, result.value);
     }
     if (((route === 'restaurant' || route === 'tables/grid') && req.method === 'PUT') || ((route === 'tables' || /^tables\/\d+$/.test(route)) && ['POST', 'PATCH', 'DELETE'].includes(req.method))) {
       const input = await body(req);
@@ -234,8 +251,9 @@ module.exports = async function handler(req, res) {
       const p = await body(req);
       if (!validProduct(p)) return send(res, 400, { error: 'Enter a valid product and add-ons' });
       const result = await mutate(accountId, data => {
+        if (!validRecipe(data, p.recipe)) return { status: 400, value: { error: 'Enter valid recipe quantities and stock items' } };
         const id = Math.max(0, ...data.products.map(p => p.id)) + 1;
-        data.products.push({ id, name: p.name.trim(), price: p.price, priority: p.priority || 'medium', addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
+        data.products.push({ id, name: p.name.trim(), price: p.price, priority: p.priority || 'medium', recipe: p.recipe || [], addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), category: p.category?.trim() || '', image: typeof p.image === 'string' ? p.image : '', active: true, hidden: false });
         return { status: 201, value: { id }, save: true };
       });
       return send(res, result.status, result.value);
@@ -245,10 +263,11 @@ module.exports = async function handler(req, res) {
       const p = await body(req);
       if (!validProduct(p)) return send(res, 400, { error: 'Enter a valid product and add-ons' });
       const result = await mutate(accountId, data => {
+        if (!validRecipe(data, p.recipe)) return { status: 400, value: { error: 'Enter valid recipe quantities and stock items' } };
         const current = data.products.find(p => p.id === Number(match[1]) && p.active);
         if (!current) return { status: 404, value: { error: 'Product not found' } };
         if (productInOpenOrder(data, current.id)) return { status: 409, value: { error: 'Finish open table orders before changing this product' } };
-        Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.priority !== undefined ? { priority: p.priority } : {}), ...(p.image !== undefined ? { image: p.image } : {}) });
+        Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.priority !== undefined ? { priority: p.priority } : {}), ...(p.image !== undefined ? { image: p.image } : {}), ...(p.recipe !== undefined ? { recipe: p.recipe } : {}) });
         return { status: 200, value: { ok: true }, save: true };
       });
       return send(res, result.status, result.value);
@@ -277,34 +296,9 @@ module.exports = async function handler(req, res) {
     }
     if (route === 'sales' && req.method === 'POST') {
       const order = await body(req);
-      if (!order || typeof order.requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(order.requestId) || !validPaymentCode(order.payment) || !Array.isArray(order.items) || !order.items.length || order.items.length > 100 || order.items.some(i => !Number.isSafeInteger(i.id) || !Number.isSafeInteger(i.quantity) || i.quantity < 1 || i.quantity > 10000 || !Array.isArray(i.addons) || i.addons.length > 20 || i.addons.some(a => !Number.isSafeInteger(a) || a < 0) || new Set(i.addons).size !== i.addons.length) || (order.payment === 'cash' && (!Number.isSafeInteger(order.received) || order.received < 0)) || (order.promotionId !== undefined && order.promotionId !== null && !Number.isSafeInteger(order.promotionId)) || order.discount !== undefined) return send(res, 400, { error: 'Invalid sale' });
+      if (!validSale(order)) return send(res, 400, { error: 'Invalid sale' });
       const promptpayId = order.payment === 'cash' ? null : (await pool.query('SELECT promptpay_id FROM pos_credentials WHERE id = $1', [accountId])).rows[0]?.promptpay_id;
-      const result = await mutate(accountId, data => {
-        const previous = data.sales.find(s => s.requestId === order.requestId);
-        if (previous) return { status: 200, value: { id: previous.id, total: previous.total } };
-        if (!paymentAvailable(data, promptpayId, order.payment)) return { status: 409, value: { error: 'Payment method unavailable. Refresh and try again.' } };
-        const tableResult = tableForSale(data, order);
-        if (tableResult.status) return tableResult;
-        const table = tableResult.table;
-        const items = [];
-        for (const item of order.items) {
-          const p = data.products.find(p => p.id === item.id && p.active);
-          if (!p || p.hidden || item.addons.some(index => index >= (p.addons || []).length)) return { status: 409, value: { error: 'Product or add-on unavailable. Refresh and try again.' } };
-          const addons = item.addons.map(index => p.addons[index]);
-          items.push({ id: p.id, name: p.name, category: p.category || '', price: p.price + addons.reduce((sum, addon) => sum + addon.price, 0), quantity: item.quantity, addons });
-        }
-        const subtotal = items.reduce((n, p) => n + p.price * p.quantity, 0);
-        const promotion = order.promotionId == null ? null : (data.promotions || []).find(p => p.id === order.promotionId && p.active !== false && !p.hidden);
-        if (order.promotionId != null && !promotion) return { status: 409, value: { error: 'Promotion unavailable. Refresh and try again.' } };
-        const discount = promotionDiscount(promotion, items);
-        if (!Number.isSafeInteger(subtotal) || discount > subtotal || ((promotion?.categories || promotion?.productIds) && discount === 0) || (order.payment === 'promptpay' && discount === subtotal)) return { status: 409, value: { error: 'Invalid discount' } };
-        const total = subtotal - discount;
-        if (order.payment === 'cash' && order.received < total) return { status: 409, value: { error: 'Insufficient payment' } };
-        const id = Math.max(0, ...data.sales.map(s => s.id)) + 1;
-        data.sales.push({ id, table: table ? { id: table.id, name: table.name, guests: table.guests } : null, requestId: order.requestId, date: new Date().toISOString(), subtotal, discount, promotion: promotion ? { id: promotion.id, name: promotion.name, effects: effectsOf(promotion), categories: promotion.categories ?? null, productIds: promotion.productIds ?? null } : null, total, payment: order.payment, received: order.payment === 'cash' ? order.received : null, items });
-        releaseTable(table);
-        return { status: 201, value: { id, total }, save: true };
-      });
+      const result = await mutate(accountId, data => recordSale(data, order, promptpayId));
       return send(res, result.status, result.value);
     }
     return send(res, 404, { error: 'Not found' });

@@ -20,6 +20,7 @@ type Props = {
   grid: TableGrid
   request: <T>(route: string, method?: string, payload?: unknown) => Promise<T>
   refresh: () => Promise<void>
+  canOpenOrder: () => boolean
   openOrder: (table: DiningTable) => void
   transferOrder: (source: DiningTable, destination: DiningTable, action: 'move' | 'combine', guests: number) => Promise<DiningTable>
   onGuestUpdated: (table: DiningTable, previousVersion: number) => void
@@ -70,7 +71,7 @@ function TableShape({ name, seats, size, chairLayout, rotation, occupied }: Pick
   </span>
 }
 
-export function TablesPage({ tables, grid, request, refresh, openOrder, transferOrder, onGuestUpdated, itemName, lineTotal, onError }: Props) {
+export function TablesPage({ tables, grid, request, refresh, openOrder, canOpenOrder, transferOrder, onGuestUpdated, itemName, lineTotal, onError }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dialog, setDialog] = useState(false)
   const [editing, setEditing] = useState<DiningTable | null>(null)
@@ -156,7 +157,7 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
   }
 
   async function visit(action: 'open' | 'close' | 'guests') {
-    if (!selected) return
+    if (!selected || (action === 'open' && !canOpenOrder())) return
     setBusy(true)
     try {
       const table = await request<DiningTable>(`tables/${selected.id}`, 'PATCH', { action, guests: Number(guests), version: selected.version })
@@ -227,8 +228,14 @@ export function TablesPage({ tables, grid, request, refresh, openOrder, transfer
       <Card className="gap-inset border-0 bg-background p-inset shadow-sm">{selected ? <>
         <CardHeader className="px-0"><CardTitle translate="no">{[selected, ...tables.filter(table => selected.combinedTableIds?.includes(table.id))].map(table => table.name).join(' + ')}</CardTitle></CardHeader>
         <CardContent className="space-y-inset px-0"><div className="flex flex-wrap gap-4 text-sm text-muted-foreground"><span className="inline-flex items-center gap-2"><UsersRound className="size-4" />{selected.openedAt ? `${selected.guests} guests · ` : ''}{selectedCapacity} seats</span>{selected.openedAt && <span className="inline-flex items-center gap-2"><Clock3 className="size-4" />{new Date(selected.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}</div>
-          {selected.openedAt ? <><div className="space-y-2"><Label htmlFor="occupied-table-guests">Guests</Label><div className="flex gap-2"><Input id="occupied-table-guests" type="number" min="1" max={selectedCapacity} value={guests} onChange={event => setGuests(event.target.value)} /><Button variant="outline" className="border-input" disabled={busy || Number(guests) === selected.guests || !validGuests} onClick={() => visit('guests')}>Save</Button></div></div><div className="space-y-3 border-y-[0.75pt] border-border py-inset">{selected.order.length ? selected.order.map((item, index) => <div key={index} className="flex justify-between gap-3 text-sm"><span>{item.quantity} × {itemName(item.id)}</span><span className="shrink-0">{money(lineTotal(item))}</span></div>) : <p className="text-sm text-muted-foreground">No items yet</p>}</div><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Total</span><strong className="text-xl">{money(selectedTotal)}</strong></div><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Avg. per guest</span><strong>{money(Math.round(selectedTotal / selected.guests))}</strong></div><Button variant="outline" className="w-full border-input" disabled={busy || !availableMoves.length} onClick={() => startTransfer('move')}>Move table</Button><Button className="w-full" disabled={busy} onClick={() => openOrder(selected)}>{selected.order.length ? 'View order' : 'Add items'}</Button>{!selected.order.length && <Button variant="outline" className="w-full border-input" disabled={busy} onClick={() => visit('close')}>Close table</Button>}</> : <><div className="space-y-2"><Label htmlFor="table-guests">Guests</Label><Input id="table-guests" type="number" min="1" max={selectedCapacity} value={guests} onChange={event => setGuests(event.target.value)} /></div><Button className="w-full" disabled={busy || !validGuests} onClick={() => visit('open')}>Open table</Button></>}
+          {selected.openedAt ? <><div className="space-y-2"><Label htmlFor="occupied-table-guests">Guests</Label><div className="flex gap-2"><Input id="occupied-table-guests" type="number" min="1" max={selectedCapacity} value={guests} onChange={event => setGuests(event.target.value)} /><Button variant="outline" className="border-input" disabled={busy || Number(guests) === selected.guests || !validGuests} onClick={() => visit('guests')}>Save</Button></div></div><div className="space-y-3 border-y-[0.75pt] border-border py-inset">{selected.order.length ? selected.order.map((item, index) => <div key={index} className="flex justify-between gap-3 text-sm"><span>{item.quantity} × {itemName(item.id)}</span><span className="shrink-0">{money(lineTotal(item))}</span></div>) : <p className="text-sm text-muted-foreground">No items yet</p>}</div><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Total</span><strong className="text-xl">{money(selectedTotal)}</strong></div><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Avg. per guest</span><strong>{money(Math.round(selectedTotal / selected.guests))}</strong></div>
+            <Button className="w-full" disabled={busy} onClick={() => openOrder(selected)}>{selected.order.length ? 'View order' : 'Add items'}</Button>
+            <Button variant="outline" className="w-full border-input" disabled={busy || !availableMoves.length} onClick={() => startTransfer('move')}>Move table</Button>
+          </> : <><div className="space-y-2"><Label htmlFor="table-guests">Guests</Label><Input id="table-guests" type="number" min="1" max={selectedCapacity} value={guests} onChange={event => setGuests(event.target.value)} /></div><Button className="w-full" disabled={busy || !validGuests} onClick={() => visit('open')}>Open table</Button></>}
           <Button variant="outline" className="w-full" disabled={busy || !otherTables.length} onClick={() => startTransfer('combine')}>Combine tables</Button>
+          {selected.openedAt && !selected.order.length && (
+            <Button variant="destructive" className="w-full" disabled={busy} onClick={() => visit('close')}>Close table</Button>
+          )}
         </CardContent>
       </> : <CardContent className="flex min-h-48 flex-col items-center justify-center gap-3 px-0"><DiningTableIcon className="size-8 text-primary" /><h2 className="font-semibold">Select a table</h2></CardContent>}</Card>
     </div>
