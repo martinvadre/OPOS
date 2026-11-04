@@ -19,3 +19,7 @@ A local IP address only works on the same network. For access elsewhere, install
 Add or edit products in **Menu**. Tap products to fill the basket, then check out to record a sale. Cash checkout checks the amount received and calculates change. If enabled in Settings, PromptPay checkout generates a QR code for the current total; the QR code does not verify payment automatically. **Reports** shows sales by date and payment method. Product deletion hides it from the catalog and keeps past sales.
 
 Run `npm run build && npm test` to check the UI build and sale/stock behavior.
+
+## Release versions
+
+OPOS releases start at `1.0.0`. Increment the middle number for a larger feature update and reset the last number to zero, for example `1.1.0`. Increment the last number for a small patch, for example `1.1.1`. Tag releases with a `v` prefix.
