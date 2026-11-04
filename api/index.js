@@ -3,7 +3,7 @@ const { Pool } = require('pg');
 const promptpayPayload = require('promptpay-qr');
 const QRCode = require('qrcode');
 const { promotionFields, validPromotion, promotionProductsAvailable } = require('../promotion');
-const { tableState, tableMutation, productInOpenOrder } = require('../tables');
+const { tableState, tableMutation, productInOpenOrder, changesOrderProduct } = require('../tables');
 const { manualPayments, promptpayEnabled, validManualPayments } = require('../payment-methods');
 const { validSale, recordSale } = require('../sales');
 const { stockMutation, validRecipe } = require('../stock');
@@ -266,7 +266,7 @@ module.exports = async function handler(req, res) {
         if (!validRecipe(data, p.recipe)) return { status: 400, value: { error: 'Enter valid recipe quantities and stock items' } };
         const current = data.products.find(p => p.id === Number(match[1]) && p.active);
         if (!current) return { status: 404, value: { error: 'Product not found' } };
-        if (productInOpenOrder(data, current.id)) return { status: 409, value: { error: 'Finish open table orders before changing this product' } };
+        if (changesOrderProduct(current, p) && productInOpenOrder(data, current.id)) return { status: 409, value: { error: 'Finish open table orders before changing this product' } };
         Object.assign(current, { name: p.name.trim(), price: p.price, addons: p.addons.map(a => ({ name: a.name.trim(), price: a.price })), ...(p.category !== undefined ? { category: p.category.trim() } : {}), ...(p.priority !== undefined ? { priority: p.priority } : {}), ...(p.image !== undefined ? { image: p.image } : {}), ...(p.recipe !== undefined ? { recipe: p.recipe } : {}) });
         return { status: 200, value: { ok: true }, save: true };
       });

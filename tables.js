@@ -189,4 +189,13 @@ function releaseTable(table) {
 
 const productInOpenOrder = (data, id) => tableState(data).tables.some(table => table.openedAt && table.order.some(item => item.id === id));
 
-module.exports = { validItems, tableState, tableMutation, tableForSale, releaseTable, productInOpenOrder };
+function changesOrderProduct(current, input) {
+  const addons = current.addons || [];
+  return current.name !== input.name.trim()
+    || current.price !== input.price
+    || (input.category !== undefined && (current.category || '') !== input.category.trim())
+    || addons.length !== input.addons.length
+    || addons.some((addon, index) => addon.name !== input.addons[index].name.trim() || addon.price !== input.addons[index].price);
+}
+
+module.exports = { changesOrderProduct, validItems, tableState, tableMutation, tableForSale, releaseTable, productInOpenOrder };

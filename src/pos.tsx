@@ -8,7 +8,7 @@ import thaiTeaImg from '@/assets/thai-tea.png'
 
 const productImages: Record<string, string> = { 'thai tea': thaiTeaImg, cocoa: cocoaImg }
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { AnimatedSize } from '@/components/ui/animated-size'
 import { DiningTableIcon } from '@/table-icon'
 import { Badge } from '@/components/ui/badge'
@@ -144,6 +144,7 @@ export function App() {
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
   const [productDialog, setProductDialog] = useState(false)
   const [selectingProduct, setSelectingProduct] = useState<Product | null>(null)
+  const [productError, setProductError] = useState('')
   const [selectedAddons, setSelectedAddons] = useState<number[]>([])
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<ProductForm>(emptyForm)
@@ -462,6 +463,7 @@ export function App() {
   function openProduct(product?: Product) {
     setEditingId(product?.id ?? null)
     const initialImage = product ? (product.image ?? productImages[product.name.trim().toLowerCase()] ?? '') : ''
+    setProductError('')
     setForm(product ? { name: product.name, category: product.category || '', price: (product.price / 100).toFixed(2), priority: product.priority, addons: product.addons.map(addon => ({ name: addon.name, price: (addon.price / 100).toFixed(2) })), image: initialImage, imageName: '', recipe: product.recipe || [] } : emptyForm())
     setProductDialog(true)
   }
@@ -487,8 +489,9 @@ export function App() {
   }
   async function saveProduct(event: FormEvent) {
     event.preventDefault()
-    if (!form.name.trim() || !/^\d+(\.\d{1,2})?$/.test(form.price)) return error('Enter a product name and valid price')
-    if (form.addons.some(addon => !addon.name.trim() || !/^\d+(\.\d{1,2})?$/.test(addon.price))) return error('Enter a name and valid price for each add-on')
+    setProductError('')
+    if (!form.name.trim() || !/^\d+(\.\d{1,2})?$/.test(form.price)) return setProductError('Enter a product name and valid price')
+    if (form.addons.some(addon => !addon.name.trim() || !/^\d+(\.\d{1,2})?$/.test(addon.price))) return setProductError('Enter a name and valid price for each add-on')
     setBusy(true)
     try {
       const categoryName = form.category.trim()
@@ -497,7 +500,7 @@ export function App() {
       setProductDialog(false)
       await refresh()
       setNotice({ text: editingId ? 'Product updated' : 'Product added', error: false })
-    } catch (cause) { error(cause) }
+    } catch (cause) { setProductError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setBusy(false) }
   }
   async function deleteProduct() {
@@ -796,16 +799,16 @@ export function App() {
         <DialogContent aria-describedby={undefined} className="max-h-[calc(100dvh-24pt)] grid-cols-[minmax(0,1fr)] gap-inset overflow-y-auto border-0 shadow-xl sm:max-w-[330pt]">
           <DialogHeader className="pr-8"><DialogTitle className="text-xl">{editingId ? 'Edit product' : 'Add product'}</DialogTitle></DialogHeader>
           <form onSubmit={saveProduct} className="min-w-0 space-y-5">
-            <div className="space-y-2"><Label htmlFor="product-name" className="gap-1">Product name<span className="text-destructive">*</span></Label><Input className="h-10" id="product-name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required maxLength={120} /></div>
+            <div className="space-y-2"><Label htmlFor="product-name" className="gap-1">Product name</Label><Input className="h-10" id="product-name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required maxLength={120} /></div>
             <div className="space-y-2"><Label htmlFor="product-category">Category <span className="text-muted-foreground">(optional)</span></Label><Input className="h-10" id="product-category" placeholder="e.g. Drinks" value={form.category} maxLength={60} onChange={event => setForm({ ...form, category: event.target.value })} />{suggestedCategories.length > 0 && <div className="space-y-2"><p className="text-xs text-muted-foreground">Existing categories</p><div className="flex flex-wrap gap-2">{suggestedCategories.map(category => <Button key={category} type="button" size="sm" variant="outline" className="max-w-full border-input" onClick={() => setForm(current => ({ ...current, category }))}><span className="truncate" translate="no">{category}</span></Button>)}</div></div>}</div>
-            <div className="space-y-2"><Label htmlFor="product-price" className="gap-1">Price<span className="text-destructive">*</span></Label><Input className="h-10" id="product-price" type="number" min="0" step="0.01" value={form.price} onChange={event => setForm({ ...form, price: event.target.value })} required /></div>
-            <div className="space-y-2"><Label htmlFor="product-priority">Priority</Label><div className="relative"><select id="product-priority" className="h-10 w-full appearance-none rounded-md border-[0.75pt] border-input bg-background pl-3 pr-10 text-sm shadow-xs focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[2.25pt] focus-visible:ring-ring/50" value={form.priority} onChange={event => setForm({ ...form, priority: event.target.value as Priority })}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2" /></div><p className="text-xs text-muted-foreground">High items appear first at checkout.</p></div>
+            <div className="space-y-2"><Label htmlFor="product-price" className="gap-1">Price</Label><Input className="h-10" id="product-price" type="number" min="0" step="0.01" value={form.price} onChange={event => setForm({ ...form, price: event.target.value })} required /></div>
+            <div className="space-y-2"><Label htmlFor="product-priority">Priority <span className="text-muted-foreground">(optional)</span></Label><div className="relative"><select id="product-priority" className="h-10 w-full appearance-none rounded-md border-[0.75pt] border-input bg-background pl-3 pr-10 text-sm shadow-xs focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[2.25pt] focus-visible:ring-ring/50" value={form.priority} onChange={event => setForm({ ...form, priority: event.target.value as Priority })}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2" /></div><p className="text-xs text-muted-foreground">High items appear first at checkout.</p></div>
             <RecipeEditor stock={stock} recipe={form.recipe} onChange={recipe => setForm(current => ({ ...current, recipe }))} />
-            <div className="space-y-3"><div className="flex items-center justify-between"><Label>Add-ons</Label><Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, addons: [...form.addons, { name: '', price: '' }] })} disabled={form.addons.length >= 20}><Plus /> Add add-on</Button></div>
+            <div className="space-y-3"><div className="flex items-center justify-between"><Label>Add-ons <span className="text-muted-foreground">(optional)</span></Label><Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, addons: [...form.addons, { name: '', price: '' }] })} disabled={form.addons.length >= 20}><Plus /> Add add-on</Button></div>
               {form.addons.map((addon, index) => <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_72pt_24pt] items-center gap-2"><Input aria-label={`Add-on ${index + 1} name`} placeholder="Cream cheese" value={addon.name} maxLength={80} required onChange={event => setForm({ ...form, addons: form.addons.map((value, i) => i === index ? { ...value, name: event.target.value } : value) })} /><Input aria-label={`Add-on ${index + 1} price in baht`} type="number" min="0" step="0.01" placeholder="฿10" value={addon.price} required onChange={event => setForm({ ...form, addons: form.addons.map((value, i) => i === index ? { ...value, price: event.target.value } : value) })} /><Button type="button" variant="ghost" size="icon" className="size-6 text-destructive" aria-label={`Remove add-on ${index + 1}`} onClick={() => setForm({ ...form, addons: form.addons.filter((_, i) => i !== index) })}><X /></Button></div>)}
             </div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between"><Label htmlFor="product-image">Picture</Label>{form.image && <button type="button" className="text-xs leading-none font-medium text-primary hover:underline" onClick={() => setForm({ ...form, image: '', imageName: '' })}>Remove</button>}</div>
+              <div className="flex items-center justify-between"><Label htmlFor="product-image">Picture <span className="text-muted-foreground">(optional)</span></Label>{form.image && <button type="button" className="text-xs leading-none font-medium text-destructive hover:underline" onClick={() => setForm({ ...form, image: '', imageName: '' })}>Remove</button>}</div>
               <div className="flex items-center gap-2">
                 {form.image ? <img src={form.image} alt="Preview" className="size-10 shrink-0 rounded-lg border-[0.75pt] border-border object-cover" /> : <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-[#edf4fc] text-primary"><Package className="size-5" /></span>}
                 <label htmlFor="product-image" className="flex h-10 min-w-0 flex-1 cursor-pointer items-center justify-between gap-2.5 rounded-md border-[0.75pt] border-input bg-transparent p-[4pt] pl-3 text-sm shadow-xs has-[:focus-visible]:border-ring has-[:focus-visible]:ring-[2.25pt] has-[:focus-visible]:ring-ring/50">
@@ -821,20 +824,20 @@ export function App() {
       </Dialog>
 
       <AlertDialog open={deletingId !== null} onOpenChange={open => { if (!open) setDeletingId(null) }}>
-        <AlertDialogContent className="gap-inset border-0 shadow-xl sm:max-w-[330pt]">
+        <AlertDialogContent aria-describedby={undefined} className="gap-inset border-0 shadow-xl sm:max-w-[330pt]">
           <AlertDialogHeader className="gap-2 text-left sm:place-items-start">
             <AlertDialogTitle className="text-xl">Remove product?</AlertDialogTitle>
-            <AlertDialogDescription>The product will leave the catalog. Past sales remain available.</AlertDialogDescription>
+            {productError && <p role="alert" className="text-sm text-destructive">{productError}</p>}
           </AlertDialogHeader>
           <AlertDialogFooter className="pt-1">
             <AlertDialogCancel size="lg">Cancel</AlertDialogCancel>
-            <AlertDialogAction size="lg" onClick={deleteProduct}>Remove</AlertDialogAction>
+            <AlertDialogAction variant="destructive" size="lg" onClick={deleteProduct}>Remove</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <AlertDialog open={deletingPromotionId !== null} onOpenChange={open => { if (!open) setDeletingPromotionId(null) }}>
-        <AlertDialogContent className="gap-inset border-0 shadow-xl sm:max-w-[330pt]"><AlertDialogHeader className="gap-2 text-left sm:place-items-start"><AlertDialogTitle className="text-xl">Remove promotion?</AlertDialogTitle><AlertDialogDescription>It will no longer appear at checkout. Past sales remain available.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter className="pt-1"><AlertDialogCancel size="lg">Cancel</AlertDialogCancel><AlertDialogAction size="lg" onClick={deletePromotion}>Remove</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+        <AlertDialogContent aria-describedby={undefined} className="gap-inset border-0 shadow-xl sm:max-w-[330pt]"><AlertDialogHeader className="gap-2 text-left sm:place-items-start"><AlertDialogTitle className="text-xl">Remove promotion?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter className="pt-1"><AlertDialogCancel size="lg">Cancel</AlertDialogCancel><AlertDialogAction variant="destructive" size="lg" onClick={deletePromotion}>Remove</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
 
       <Dialog open={checkout} onOpenChange={setCheckout}>

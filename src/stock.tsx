@@ -34,7 +34,7 @@ export function RecipeEditor({ stock, recipe, onChange }: {
   const cost = recipe.reduce((sum, line) => sum + line.quantity * (byId.get(line.stockId)?.unitCost ?? 0), 0)
 
   return <fieldset className="space-y-2">
-    <legend className="text-sm font-medium">Stock recipe</legend>
+    <legend className="text-sm font-medium">Stock recipe <span className="text-muted-foreground">(optional)</span></legend>
     {recipe.map((line, index) => {
       const item = byId.get(line.stockId)
       return <div key={index} className="grid grid-cols-[minmax(0,1fr)_6rem_auto_auto] items-center gap-2">
@@ -48,7 +48,7 @@ export function RecipeEditor({ stock, recipe, onChange }: {
             onChange(recipe.map((entry, i) => i === index ? { ...entry, quantity: Number(event.target.value) } : entry))
           }} />
         <span className="text-xs text-muted-foreground">{item?.unit}</span>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove ingredient" onClick={() => onChange(recipe.filter((_, i) => i !== index))}><X /></Button>
+        <Button type="button" variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" aria-label="Remove ingredient" onClick={() => onChange(recipe.filter((_, i) => i !== index))}><X /></Button>
       </div>
     })}
     {stock.length === 0 && <p className="text-sm text-muted-foreground">Add ingredients and packaging on the Stock page first.</p>}

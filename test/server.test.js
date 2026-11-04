@@ -205,12 +205,24 @@ test('add-ons, promotions, hidden products, and sales persist without double cou
     const recipe = [{ stockId: milk.data.id, quantity: 200.5 }, { stockId: cups.data.id, quantity: 1 }];
     const drink = { name: 'Thai tea with recipe', price: 4500, addons: [] };
     assert.equal((await call('products', 'POST', { ...drink, recipe: [{ stockId: cups.data.id, quantity: 0.5 }] })).status, 400);
-    const savedDrink = await call('products', 'POST', { ...drink, recipe });
+    const savedDrink = await call('products', 'POST', drink);
     assert.equal(savedDrink.status, 201);
+    const drinkRoute = `products/${savedDrink.data.id}`;
+    assert.equal((await call('restaurant', 'PUT', { enabled: true })).status, 200);
+    const recipeTable = await call('tables', 'POST', { name: 'Recipe table', seats: 2 });
+    assert.equal(recipeTable.status, 201);
+    const recipeTableRoute = `tables/${recipeTable.data.id}`;
+    const openedRecipeTable = await call(recipeTableRoute, 'PATCH', { action: 'open', guests: 1, version: recipeTable.data.version });
+    assert.equal(openedRecipeTable.status, 200);
+    const items = [{ id: savedDrink.data.id, quantity: 2, addons: [] }];
+    const savedRecipeOrder = await call(recipeTableRoute, 'PATCH', { action: 'order', version: openedRecipeTable.data.version, items });
+    assert.equal(savedRecipeOrder.status, 200);
+    assert.equal((await call(drinkRoute, 'PUT', { ...drink, price: 4600, recipe })).status, 409);
+    assert.equal((await call(drinkRoute, 'PUT', { ...drink, recipe })).status, 200);
     assert.deepEqual((await call('state')).data.products.find(item => item.id === savedDrink.data.id).recipe, recipe);
     const stockOrder = {
-      requestId: crypto.randomUUID(), payment: 'cash', received: 9000,
-      items: [{ id: savedDrink.data.id, quantity: 2, addons: [] }],
+      requestId: crypto.randomUUID(), payment: 'cash', received: 9000, items,
+      tableId: recipeTable.data.id, tableVersion: savedRecipeOrder.data.version,
     };
     assert.equal((await call('sales', 'POST', { ...stockOrder, received: 0 })).status, 409);
     assert.deepEqual((await call('state')).data.stock.map(item => item.quantity), [2000, 2]);
